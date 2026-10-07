@@ -56,7 +56,10 @@ export function interpretResponse(status, body, { model, json } = {}) {
     return fail('rate_limit', "Gemini's free limit was hit. Wait a minute and resend. If it keeps happening, today's allowance is used up until midnight US Pacific time.", { detail: apiMsg, retryable: true });
   }
   if (status >= 500) {
-    return fail('server', `Gemini's servers had a problem (code ${status}). Wait a moment and resend.`, { detail: apiMsg, retryable: true });
+    const busy = status === 503 || /overloaded|unavailable|high demand/i.test(apiMsg);
+    return fail('server', busy
+      ? `Gemini's servers are too busy right now (code ${status}). The game already retried a few times. Wait a minute and try again.`
+      : `Gemini's servers had a problem (code ${status}). Wait a moment and resend.${apiMsg ? ` Google says: "${apiMsg.slice(0, 160)}"` : ''}`, { detail: apiMsg, retryable: true });
   }
   if (status !== 200) {
     return fail('error', `Gemini returned an error (code ${status}). ${apiMsg}`.trim(), { detail: apiMsg, retryable: true });
