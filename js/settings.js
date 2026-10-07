@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS = {
   worldDailyLimit: 20,
   textSize: 'medium',
   undoEnabled: true,
+  showDice: true,
 };
 
 let cache = null;

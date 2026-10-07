@@ -11,7 +11,7 @@ export function h(tag, props, ...children) {
     if (part[0] === '.') el.classList.add(part.slice(1));
     else el.id = part.slice(1);
   }
-  if (props && (typeof props !== 'object' || props instanceof Node || Array.isArray(props))) {
+  if (props != null && (typeof props !== 'object' || props instanceof Node || Array.isArray(props))) {
     children.unshift(props);
     props = null;
   }

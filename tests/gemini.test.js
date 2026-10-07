@@ -93,3 +93,20 @@ test('pickModel prefers newest stable lite / flash', () => {
   assert.equal(pickModel(['gemini-3.5-flash-lite-preview'], 'gm'), 'gemini-3.5-flash-lite-preview');
   assert.equal(pickModel(['gemma-3'], 'gm'), null);
 });
+
+test('a rejected answer format falls back to plain JSON described in words', async () => {
+  const sent = [];
+  const fetchFn = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    sent.push(body);
+    if (body.generationConfig.responseSchema) return { status: 400, json: async () => ({ error: { message: 'Invalid value at generation_config.response_schema' } }) };
+    return { status: 200, json: async () => ok('{"prose":"Hi","changes":[]}') };
+  };
+  const p = createGeminiProvider({ getKey: () => 'k', fetchFn });
+  const schema = { type: 'OBJECT', properties: { prose: { type: 'STRING' } } };
+  const r = await p.generate({ model: 'm', system: 'sys', messages: [{ role: 'user', text: 'hi' }], json: schema });
+  assert.equal(r.ok, true);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].generationConfig.responseMimeType, 'application/json');
+  assert.match(sent[1].systemInstruction.parts[0].text, /shaped like this schema/);
+});

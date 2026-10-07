@@ -99,6 +99,15 @@ export function interpretResponse(status, body, { model, json } = {}) {
   return { ok: true, text, finishReason: finish, truncated, usage: body.usageMetadata };
 }
 
+/** A shorter description of a schema, for putting in a prompt. */
+export function compactSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (schema.type === 'OBJECT') return Object.fromEntries(Object.entries(schema.properties || {}).map(([k, v]) => [k, compactSchema(v)]));
+  if (schema.type === 'ARRAY') return [compactSchema(schema.items)];
+  if (schema.enum) return schema.enum.join(' | ');
+  return `${schema.type.toLowerCase()}${schema.description ? ': ' + schema.description : ''}`;
+}
+
 function stripFences(text) {
   const m = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return m ? m[1] : text;
@@ -127,8 +136,15 @@ export function createGeminiProvider({ getKey, fetchFn = (...a) => fetch(...a) }
       try {
         let r = await post(req.model, buildBody(req, 'OFF'), req.signal);
         // Older models reject the OFF threshold; BLOCK_NONE is the next most open setting.
+        let threshold = 'OFF';
         if (r.status === 400 && /threshold/i.test(r.body?.error?.message || '')) {
-          r = await post(req.model, buildBody(req, 'BLOCK_NONE'), req.signal);
+          threshold = 'BLOCK_NONE';
+          r = await post(req.model, buildBody(req, threshold), req.signal);
+        }
+        // If the model refuses the answer format, ask for plain JSON and describe the shape in words.
+        if (r.status === 400 && req.json && req.json !== true && !/api key/i.test(r.body?.error?.message || '')) {
+          const loose = { ...req, json: true, system: `${req.system || ''}\n\nReply with JSON only, shaped like this schema:\n${JSON.stringify(compactSchema(req.json))}` };
+          r = await post(req.model, buildBody(loose, threshold), req.signal);
         }
         return { ...interpretResponse(r.status, r.body, req), status: r.status };
       } catch (err) {
