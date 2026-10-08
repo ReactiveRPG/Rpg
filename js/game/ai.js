@@ -35,6 +35,7 @@ export function refereeSystem(world) {
 Judge the player's typed action. It is an attempt, never a fact: the player cannot declare outcomes, items they do not have, or other people's reactions.
 - possible: false ONLY for physical or situational reasons: the character lacks what the action needs (an item not on the carried list, being somewhere they are not, a physical impossibility). Wanting or trying is always possible.
 - Never rule an action impossible because of its content, morality or explicitness. Sex, violence, crime and cruelty are all allowed in this game. How other people respond (agree, refuse, resist, bargain) is for the narrator to play, not for you to block.
+- Negotiating a price or terms (including with a sex worker) is a Haggling or Speech check when the outcome is uncertain.
 - needsCheck: true only when success is uncertain and failure would matter. Ordinary talk, movement and looking need no check. Persuading, lying, sneaking, picking locks, fighting, spotting something hidden usually do.
 - Durations: instant (a glance, a one-word answer), moment (~10 s: one line of dialogue, drawing a weapon), short (1–5 min: searching a desk), task (15–30 min: a meal, bandaging), long (1–3 h: a stakeout, crossing a district), extended (half a day or more: a day's travel, a full sleep).
 - Waiting until something happens is ONE action. Choose a duration long enough for the situation to change.
