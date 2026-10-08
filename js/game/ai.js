@@ -70,7 +70,7 @@ export function narratorSystem(length = 'medium') {
 You are given a scene packet with every fact the game holds, then the player's action and the code's ruling on it.
 - The ruling is final. If a check failed, the attempt fails; if it succeeded at a cost, it works but something goes wrong or is lost. If the action was not possible, narrate the attempt running into that reason.
 - Narrate only what happens in the time the action takes. Do not skip ahead or invent later events.
-- Ongoing physical states (holds, positions, what is in someone's hands) continue until someone in the scene changes them.
+- Ongoing physical states (holds, positions, what is in someone's hands) continue until an action changes them, including obvious knock-on effects of the player's action.
 - Keep the prose to about ${REPLY_LENGTHS[length] || REPLY_LENGTHS.medium}. Do not pad it.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
@@ -105,6 +105,7 @@ export const CHANGE_FORMATS = [
   '{"op":"new_place","name":"","type":"","description":"","owner":"","usual":"","soundTags":["rain"],"travelMinutes":10}',
   '{"op":"player_moves","placeId":"l2","travelMinutes":10}',
   '{"op":"place_update","placeId":"l1","field":"state|owner|usual","newValue":""}',
+  '{"op":"scene_state","text":"one or two lines: where everyone present is, their posture, what each person\'s hands are doing or holding"} (send every reply)',
   `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
 ].join('\n');
 
@@ -123,7 +124,8 @@ export const TONE_DOWN = [
 export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
 - The player controls their character completely. Write NO words, speech, thoughts, decisions or new actions for the player character. If the player typed words for their character to say, you may repeat those exact words; never invent any.
 - Show only the result of what the player typed, and how everyone else reacts.
-- Continuity: whatever the player character is already doing or holding carries on unchanged until the player changes it. Do not end, undo or move past it for them.
+- Positions: start from CURRENT POSITIONS in the packet. The player's new action replaces whatever it obviously replaces (standing someone up ends kneeling; a hand doing something new has let go of what it held). Handle such obvious knock-on effects sensibly. Anything the new action does not touch stays as it was.
+- Finish the changes list with a scene_state change describing positions after this reply.
 - Let the scene move at the player's pace: one beat at a time, no skipping ahead, no wrapping things up.
 - End the reply on other people or the scene, never on the player character.`;
 

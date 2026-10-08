@@ -383,3 +383,13 @@ test('player-control reminder is the last thing the narrator reads', async () =>
   assert.ok(text.trimEnd().endsWith('End the reply on other people or the scene, never on the player character.'));
   assert.match(text, /Write NO words, speech, thoughts/);
 });
+
+test('scene positions are kept by the code and sent back next turn', async () => {
+  const w = newGame();
+  applyChanges(w, [{ op: 'scene_state', text: 'Ada standing at the bar, left hand on her mug.' }]);
+  assert.equal(w.sceneState, 'Ada standing at the bar, left hand on her mug.');
+  assert.match(buildPacket(w), /CURRENT POSITIONS \(as of the last reply\): Ada standing at the bar/);
+  const far = Object.values(w.places).find((p) => p.name === 'Harbour Wall');
+  applyChanges(w, [{ op: 'player_moves', placeId: far.id }]);
+  assert.equal(w.sceneState, '');
+});

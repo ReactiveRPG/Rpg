@@ -12,7 +12,7 @@ export const CHANGE_OPS = [
   'move_item', 'new_item', 'use_up_item', 'pay',
   'new_person', 'person_update', 'person_enters', 'person_leaves', 'person_dies',
   'relationship', 'history',
-  'new_place', 'player_moves', 'place_update',
+  'new_place', 'player_moves', 'place_update', 'scene_state',
 ];
 
 const PLACE_FIELDS = ['state', 'owner', 'usual'];
@@ -320,6 +320,7 @@ function applyOne(world, c, trusted) {
       world.currentPlaceId = pl.id;
       // People stay behind unless the narrator says they come along.
       world.present = [];
+      world.sceneState = '';
       if (!pl.firstVisit) pl.firstVisit = world.clock;
       return { ok: true };
     }
@@ -330,6 +331,13 @@ function applyOne(world, c, trusted) {
       if (!PLACE_FIELDS.includes(c.field)) return no(`place ${c.field || '(no field)'} cannot change (only ${PLACE_FIELDS.join(', ')})`);
       if (c.field === 'state' && !['open', 'closed', 'abandoned'].includes(c.newValue)) return no('state must be open, closed or abandoned');
       pl[c.field] = String(c.newValue || '').slice(0, 400);
+      return { ok: true };
+    }
+
+    case 'scene_state': {
+      const text = String(c.text || '').trim().slice(0, 500);
+      if (!text) return no('empty scene state');
+      world.sceneState = text;
       return { ok: true };
     }
 

@@ -20,6 +20,7 @@ export function openPlace(ctx) {
         pl.owner ? [h('dt', 'Owner'), h('dd', pl.owner)] : null,
         pl.usual ? [h('dt', 'Usually'), h('dd', pl.usual)] : null,
         pl.soundTags.length ? [h('dt', 'Sounds'), h('dd', pl.soundTags.join(', '))] : null)),
+    w.sceneState ? h('div.card-block', h('h3', 'Positions right now'), h('p', w.sceneState)) : null,
     h('div.card-block', h('h3', 'People here'),
       here.length ? here.map((p) => h('button.list-btn', { type: 'button', onclick: () => openCard(ctx, p) }, p.fixed.name, h('small', p.life.role || ''))) : h('p.hint', 'No one you know.')),
     h('div.card-block', h('h3', 'Known routes'),

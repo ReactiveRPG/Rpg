@@ -156,6 +156,7 @@ export function buildPacket(world, { kind, lean = false, bare = false } = {}) {
   parts.push(present.length
     ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x, { bare })).join('\n')
     : 'OTHERS PRESENT: no carded people. Unnamed crowd members may exist if the place would have them.');
+  if (!bare) parts.push(`CURRENT POSITIONS (as of the last reply): ${world.sceneState || 'not recorded yet; work them out from the last turns'}`);
   const absent = Object.values(world.people).filter((x) => !x.isPlayer && !world.present.includes(x.id));
   if (absent.length) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
