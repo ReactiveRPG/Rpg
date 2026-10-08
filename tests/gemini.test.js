@@ -110,3 +110,23 @@ test('a rejected answer format falls back to plain JSON described in words', asy
   assert.equal(sent[1].generationConfig.responseMimeType, 'application/json');
   assert.match(sent[1].systemInstruction.parts[0].text, /shaped like this schema/);
 });
+
+import { salvageNarration } from '../js/providers/gemini.js';
+
+test('a cut-off narrator reply keeps its prose and finished changes', () => {
+  const full = JSON.stringify({ prose: 'She steps close. "Ten bucks," she says.', changes: [{ op: 'pay', from: 'p1', to: 'p4', amount: 10 }, { op: 'history', personId: 'p4', text: 'Met the player' }] });
+  const cut = full.slice(0, full.length - 12);
+  const r = interpretResponse(200, ok(cut, 'MAX_TOKENS'), { json: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.prose, 'She steps close. "Ten bucks," she says.');
+  assert.deepEqual(r.data.changes, [{ op: 'pay', from: 'p1', to: 'p4', amount: 10 }]);
+});
+
+test('a reply cut off inside long prose keeps the prose', () => {
+  const long = 'Rain falls. '.repeat(40);
+  const r = salvageNarration(`{"prose": "${long}and the`);
+  assert.ok(r.prose.startsWith('Rain falls.'));
+  assert.ok(r.prose.endsWith('…'));
+  assert.deepEqual(r.changes, []);
+  assert.equal(salvageNarration('{"prose": "Too short'), null);
+});

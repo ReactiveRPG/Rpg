@@ -1,9 +1,8 @@
 // What the game asks the AI, and the exact shape of the answers it accepts.
 
 import { NARRATOR_RULES, TONE, FIXED_RULES } from '../prompts.js';
-import { ATTRIBUTES, ACTION_KINDS, DURATIONS, RELATION_ASPECTS, MUTABLE_PERSON_FIELDS, skillTable } from './rules.js';
+import { ATTRIBUTES, ACTION_KINDS, DURATIONS, skillTable } from './rules.js';
 import { SIZES, SLOTS, INSIDE } from './inventory.js';
-import { CHANGE_OPS } from './changes.js';
 
 const S = (description, extra = {}) => ({ type: 'STRING', description, ...(extra.enum ? { format: 'enum' } : {}), ...extra });
 const I = (description) => ({ type: 'INTEGER', description });
@@ -49,58 +48,11 @@ export function refereeRequest(world, packet, action) {
     messages: [{ role: 'user', text: `${packet}\n\nPLAYER'S ACTION: ${action}` }],
     json: refereeSchema(world),
     temperature: 0.2,
-    maxTokens: 2000,
+    maxTokens: 4000,
   };
 }
 
 // ---------- Narrator ----------
-
-const CHANGE_SCHEMA = O({
-  op: S('Which change.', { enum: CHANGE_OPS }),
-  itemId: S('Item id like "i12" (or exact item name).'),
-  personId: S('Person id like "p3" (or exact name).'),
-  placeId: S('Place id like "l2" (or exact name).'),
-  to: S('Destination: a person id, a place id, a container item id, or "here" for the ground.'),
-  from: S('Payer person id (pay).'),
-  slot: S('Carry slot on a person, or "inside" for a container.', { enum: [...Object.keys(SLOTS), INSIDE] }),
-  name: S('Name for a new item, person or place.'),
-  qty: I('How many.'),
-  size: S('Item size.', { enum: SIZES }),
-  weight: N('Weight of ONE item in kg.'),
-  value: I('Value of ONE item in the base currency unit, from the price list.'),
-  capacity: I('For bags only: room inside (shoulder bag 8, backpack 20, sack 15).'),
-  tags: A({ type: 'STRING' }, 'Item tags: weapon, food, drink, drug, tool, key, document, pants, jacket, belt, socks, boots, strap, sheath, bag, clothing, armour.'),
-  source: S('Where a new item came from (taken from the room, bought from p3, handed over by p4...). Required.'),
-  amount: I('Money amount in base units (pay).'),
-  reason: S('Why (for use_up_item, person_dies, pay).'),
-  sex: S('For new_person.', { enum: ['female', 'male', 'other'] }),
-  pronouns: S('For new_person, e.g. she/her.'),
-  age: I('For new_person.'),
-  looks: S('For new_person: fixed appearance.'),
-  voice: S('For new_person: voice and manner.'),
-  role: S('For new_person: who they are in one phrase.'),
-  job: S('For new_person.'),
-  mood: S('For new_person.'),
-  goal: S('For new_person: what they want right now.'),
-  field: S(`person_update: one of ${MUTABLE_PERSON_FIELDS.join(', ')}. place_update: state, owner or usual.`),
-  newValue: S('New value for person_update or place_update.'),
-  aspect: S('relationship aspect.', { enum: RELATION_ASPECTS }),
-  direction: S('relationship direction.', { enum: ['up', 'down'] }),
-  change: S('relationship size.', { enum: ['slight', 'notable', 'major'] }),
-  text: S('history: one dated line, from the other person\'s view, of what they and the player did together.'),
-  type: S('new_place: kind of place.'),
-  region: S('new_place: region.'),
-  description: S('new_place: fixed description.'),
-  owner: S('new_place: owner.'),
-  usual: S('new_place: who is usually there.'),
-  soundTags: A({ type: 'STRING' }, 'new_place: short sound words, e.g. crowd, fire, rain.'),
-  travelMinutes: I('new_place or player_moves: travel time from the current place.'),
-}, ['op']);
-
-export const NARRATOR_SCHEMA = O({
-  prose: S('The narration shown to the player.'),
-  changes: A(CHANGE_SCHEMA, 'Proposed changes to the game state. The code checks each one; invalid ones are dropped.'),
-}, ['prose', 'changes']);
 
 export function narratorSystem() {
   return `${NARRATOR_RULES}
@@ -108,6 +60,7 @@ export function narratorSystem() {
 You are given a scene packet with every fact the game holds, then the player's action and the code's ruling on it.
 - The ruling is final. If a check failed, the attempt fails; if it succeeded at a cost, it works but something goes wrong or is lost. If the action was not possible, narrate the attempt running into that reason.
 - Narrate only what happens in the time the action takes. Do not skip ahead or invent later events.
+- Keep the prose to about 120–400 words.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
 - The player character cannot die in this version of the game; at worst they are badly hurt or knocked out.
@@ -120,8 +73,29 @@ CHANGES: list every change your narration causes, using ids from the packet (or 
 - new_item only with a real source in the scene (taken from the room, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person with a slot, "here" for the ground, or a bag id).
 - pay for money changing hands; prices come from the price list. The code does the arithmetic.
 - new_place then player_moves when the player goes somewhere new; player_moves alone for a known place.
-- Do not repeat facts that did not change. Use an empty list if nothing changed.`;
+- Do not repeat facts that did not change. Use an empty list if nothing changed.
+
+REPLY FORMAT: JSON only, exactly {"prose": "...", "changes": [ ... ]}.
+Each change is a small object with "op" and ONLY the fields that op uses. Never add empty fields.
+${CHANGE_FORMATS}`;
 }
+
+/** One line per change: the op and its fields. Kept short so replies stay short. */
+export const CHANGE_FORMATS = [
+  '{"op":"new_item","name":"","qty":1,"size":"tiny|small|medium|large|huge","weight":0.5,"value":0,"tags":["weapon"],"to":"p1|here|i7","slot":"optional","source":"where it came from"}',
+  '{"op":"move_item","itemId":"i3","to":"p2|here|i7","slot":"optional","qty":"optional, to split a stack"}',
+  '{"op":"use_up_item","itemId":"i3","qty":1,"reason":"eaten|spent|broken|lost"}',
+  '{"op":"pay","from":"p1","to":"p2","amount":10,"reason":""}',
+  '{"op":"new_person","name":"","sex":"female|male|other","pronouns":"she/her","age":30,"looks":"","voice":"","role":"","job":"","mood":"","goal":""}',
+  '{"op":"person_update","personId":"p2","field":"job|home|workplace|faction|mood|goal|status|role","newValue":""}',
+  '{"op":"person_enters","personId":"p2"}  {"op":"person_leaves","personId":"p2"}  {"op":"person_dies","personId":"p2","reason":""}',
+  '{"op":"relationship","personId":"p2","aspect":"trust|fear|attraction|respect","direction":"up|down","change":"slight|notable|major"}',
+  '{"op":"history","personId":"p2","text":"one line"}',
+  '{"op":"new_place","name":"","type":"","description":"","owner":"","usual":"","soundTags":["rain"],"travelMinutes":10}',
+  '{"op":"player_moves","placeId":"l2","travelMinutes":10}',
+  '{"op":"place_update","placeId":"l1","field":"state|owner|usual","newValue":""}',
+  `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
+].join('\n');
 
 export const TONE_DOWN = 'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.';
 
@@ -130,7 +104,7 @@ export function narratorRequest(world, packet, action, ruling, { toneDown = fals
     job: 'gm',
     system: narratorSystem(),
     messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN : ''}` }],
-    json: NARRATOR_SCHEMA,
+    json: true,
     temperature: 0.95,
     maxTokens: 8000,
   };

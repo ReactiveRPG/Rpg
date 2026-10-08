@@ -94,6 +94,8 @@ export function interpretResponse(status, body, { model, json } = {}) {
     try {
       return { ok: true, text, data: JSON.parse(stripFences(text)), finishReason: finish, truncated };
     } catch {
+      const rescued = salvageNarration(stripFences(text));
+      if (rescued) return { ok: true, text, data: rescued, finishReason: finish, truncated, salvaged: true };
       return fail('bad_json', truncated
         ? 'Gemini ran out of room before finishing its reply. Resend to try again.'
         : 'Gemini sent back a reply the game could not read. Resend to try again.', { detail: text.slice(0, 500), retryable: true });
@@ -109,6 +111,61 @@ export function compactSchema(schema) {
   if (schema.type === 'ARRAY') return [compactSchema(schema.items)];
   if (schema.enum) return schema.enum.join(' | ');
   return `${schema.type.toLowerCase()}${schema.description ? ': ' + schema.description : ''}`;
+}
+
+/** Reads one JSON string literal starting at the opening quote. Returns [value, endIndex] or null. */
+function readString(text, start) {
+  let i = start + 1;
+  while (i < text.length) {
+    if (text[i] === '\\') i += 2;
+    else if (text[i] === '"') {
+      try { return [JSON.parse(text.slice(start, i + 1)), i + 1]; } catch { return null; }
+    } else i++;
+  }
+  return null;
+}
+
+/**
+ * Rescues a narrator reply that was cut off: keeps the prose and every change
+ * object that was finished, drops the rest. Returns { prose, changes } or null.
+ */
+export function salvageNarration(text) {
+  const p = text.search(/"prose"\s*:\s*"/);
+  if (p < 0) return null;
+  const q = text.indexOf('"', text.indexOf(':', p));
+  let prose;
+  const read = readString(text, q);
+  if (read) prose = read[0];
+  else {
+    // Cut off inside the prose itself: keep what was written, if there is enough of it.
+    const partial = text.slice(q + 1).replace(/\\$/, '');
+    try { prose = JSON.parse(`"${partial.replace(/\\u[0-9a-fA-F]{0,3}$/, '')}"`); } catch { prose = partial.replace(/\\n/g, '\n').replace(/\\"/g, '"'); }
+    if (prose.trim().length < 200) return null;
+    prose = prose.trimEnd() + '…';
+  }
+  const changes = [];
+  const c = text.search(/"changes"\s*:\s*\[/);
+  if (c >= 0) {
+    let i = text.indexOf('[', c) + 1;
+    while (i < text.length) {
+      const open = text.indexOf('{', i);
+      if (open < 0) break;
+      let depth = 0;
+      let j = open;
+      let done = false;
+      while (j < text.length) {
+        const ch = text[j];
+        if (ch === '"') { const r = readString(text, j); if (!r) break; j = r[1]; continue; }
+        if (ch === '{') depth++;
+        if (ch === '}') { depth--; if (depth === 0) { done = true; break; } }
+        j++;
+      }
+      if (!done) break;
+      try { changes.push(JSON.parse(text.slice(open, j + 1))); } catch { /* skip a broken one */ }
+      i = j + 1;
+    }
+  }
+  return { prose, changes };
 }
 
 function stripFences(text) {
