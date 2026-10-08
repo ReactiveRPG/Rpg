@@ -1,11 +1,11 @@
 // The Play screen: story log, action box, Undo, and a header with date,
 // time, place and a one-line body status.
 
-import { h, prose, toast } from './dom.js';
+import { h, prose, toast, hiddenTimes, whenVisible, INTERRUPTED } from './dom.js';
 import { loadSettings } from '../settings.js';
 import { playTurn, summarise } from '../game/turn.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
-import { saveWorld } from '../game/saves.js';
+import { saveWorld, savePendingTurn, loadPendingTurn, clearPendingTurn } from '../game/saves.js';
 import { formatDate, formatTime, dateParts } from '../game/clock.js';
 import { carriedWeight, weightLimits } from '../game/inventory.js';
 import { money } from '../game/packet.js';
@@ -23,20 +23,31 @@ export async function renderPlay(root, ctx) {
   let busy = false;
   let pending = null;      // dice kept from a failed narration
   let redo = null;         // the world before the last Undo, to put it back
+  // What a turn in progress shows, kept so the log can be redrawn mid-turn.
+  const inFlight = { action: null, roll: null, waiting: null };
 
   const header = h('div.play-head');
   const menu = h('nav.menu-row',
     h('button.chip', { type: 'button', onclick: () => openInventory(ctx, refresh) }, 'Inventory'),
     h('button.chip', { type: 'button', onclick: () => openPeople(ctx) }, 'People'),
     h('button.chip', { type: 'button', onclick: () => openPlace(ctx) }, 'Here'),
-    h('button.chip', { type: 'button', onclick: () => ctx.goHome() }, 'Worlds'),
+    h('button.chip', { type: 'button', onclick: () => (busy ? toast('Wait for this turn to finish first') : ctx.goHome()) }, 'Worlds'),
     h('button.chip', { type: 'button', onclick: () => openConsole(ctx) }, 'Console'),
-    h('button.chip', { type: 'button', onclick: () => openSettings({ onClose: () => renderPlay(root, ctx) }), 'aria-label': 'Settings' }, '⚙ Settings'));
+    h('button.chip', { type: 'button', onclick: () => openSettings({ onClose: settingsClosed }), 'aria-label': 'Settings' }, '⚙ Settings'));
   const log = h('div.log');
   const input = h('textarea', { rows: 2, placeholder: 'What do you do?', enterkeyhint: 'send' });
   const sendBtn = h('button.primary', { type: 'button', onclick: () => submit() }, 'Send');
   const undoBtn = h('button', { type: 'button', onclick: () => startUndo() }, 'Undo');
-  const bar = h('div.action-bar', settings.undoEnabled ? undoBtn : null, input, sendBtn);
+  const bar = h('div.action-bar', undoBtn, input, sendBtn);
+  undoBtn.style.display = settings.undoEnabled ? '' : 'none';
+
+  // Settings changes apply to this screen without rebuilding it, so a turn in
+  // progress carries on undisturbed.
+  async function settingsClosed() {
+    Object.assign(settings, await loadSettings());
+    undoBtn.style.display = settings.undoEnabled ? '' : 'none';
+    refresh();
+  }
 
   function renderHeader() {
     const w = ctx.world;
@@ -68,7 +79,7 @@ export async function renderPlay(root, ctx) {
     const w = ctx.world;
     const nodes = w.log.slice(-200).map(entryEl).filter(Boolean);
     if (w.log.length > 200) nodes.unshift(h('div.msg.system', 'Earlier story is kept in the save and the running summary.'));
-    log.replaceChildren(...nodes);
+    log.replaceChildren(...nodes, ...[inFlight.action, inFlight.roll, inFlight.waiting].filter(Boolean));
     log.scrollTop = log.scrollHeight;
   }
 
@@ -81,10 +92,16 @@ export async function renderPlay(root, ctx) {
     busy = on;
     sendBtn.disabled = on;
     undoBtn.disabled = on;
-    log.querySelector('.msg.waiting')?.remove();
+    inFlight.waiting?.remove();
+    inFlight.waiting = on ? h('div.msg.waiting', text) : null;
     if (on) {
-      log.append(h('div.msg.waiting', text));
+      log.append(inFlight.waiting);
       log.scrollTop = log.scrollHeight;
+    } else {
+      inFlight.action?.remove();
+      inFlight.roll?.remove();
+      inFlight.action = null;
+      inFlight.roll = null;
     }
   }
 
@@ -98,7 +115,7 @@ export async function renderPlay(root, ctx) {
     log.scrollTop = log.scrollHeight;
   }
 
-  async function submit(text, { rewrite = false, resend = false } = {}) {
+  async function submit(text, { rewrite = false, resend = false, retries = 0 } = {}) {
     if (busy) return;
     const action = (text ?? input.value).trim();
     if (!action) return;
@@ -107,32 +124,62 @@ export async function renderPlay(root, ctx) {
     input.value = '';
     log.querySelector('.undo-panel')?.remove();
     log.querySelectorAll('.problem').forEach((n) => n.remove());
-    log.append(h('div.msg.player.pending-action', rewrite ? '✎ ' + action : action));
+    inFlight.action = h('div.msg.player', rewrite ? '✎ ' + action : action);
+    log.append(inFlight.action);
     setBusy(true, rewrite ? 'The narrator is rewriting the scene…' : 'The referee is weighing it…');
 
-    const res = await playTurn(ctx.world, action, {
+    // Saved before sending, so a turn cut off by leaving the app can be picked up again.
+    const w = ctx.world;
+    const hiddenBefore = hiddenTimes();
+    const note = (p) => savePendingTurn({ worldId: w.id, baseTurn: w.turn, action, rewrite, pending: p }).catch(() => {});
+    await note(resend ? pending : null);
+
+    const res = await playTurn(w, action, {
       rewrite,
       pending: resend ? pending : null,
       length: settings.replyLength,
-      onStage: (stage, roll) => {
+      onStage: (stage, roll, info) => {
         if (stage === 'narrator') {
-          if (roll && settings.showDice) log.querySelector('.pending-action')?.after(h('div.msg.roll.pending-roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`));
+          if (info) { pending = info; note(info); }
+          if (roll && settings.showDice && !inFlight.roll) {
+            inFlight.roll = h('div.msg.roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`);
+            inFlight.action?.after(inFlight.roll);
+          }
           setBusy(true, 'The narrator is writing…');
         }
       },
     });
-    setBusy(false);
-    log.querySelector('.pending-roll')?.remove();
+
     if (!res.ok) {
-      log.querySelector('.pending-action')?.remove();
-      pending = res.pending || null;
+      pending = res.pending || pending;
+      // Cut off because the app was in the background: carry on once it is back.
+      if (retries < 2 && hiddenTimes() > hiddenBefore && INTERRUPTED.includes(res.error.kind)) {
+        setBusy(true, 'Picking up where you left off…');
+        await whenVisible();
+        setBusy(false);
+        return submit(action, { rewrite, resend: true, retries: retries + 1 });
+      }
+      setBusy(false);
+      await clearPendingTurn();
       showProblem(res, action, { rewrite });
       return;
     }
+    setBusy(false);
     pending = null;
-    await saveWorld(ctx.world);
-    refresh();
+    await saveWorld(w);
+    await clearPendingTurn();
+    if (ctx.world === w) refresh();
     backgroundSummary();
+  }
+
+  /** After the app was closed mid-turn: finish that turn instead of losing it. */
+  async function resumeIfNeeded() {
+    const pt = await loadPendingTurn().catch(() => null);
+    if (!pt || pt.worldId !== ctx.world.id) return;
+    if (ctx.world.turn !== pt.baseTurn) { await clearPendingTurn(); return; }
+    pending = pt.pending || null;
+    toast('Resuming your last turn…');
+    submit(pt.action, { rewrite: pt.rewrite, resend: true });
   }
 
   async function backgroundSummary() {
@@ -199,4 +246,5 @@ export async function renderPlay(root, ctx) {
   root.replaceChildren(h('div.play', header, menu, log, bar));
   refresh();
   if (!ctx.world.log.length) log.append(h('div.msg.system', 'The story has not started yet.'));
+  resumeIfNeeded();
 }

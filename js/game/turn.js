@@ -118,7 +118,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     actionText = `PLAYER'S ACTION (an attempt, not a fact): "${action}"`;
     rulingBlock = rulingText(ruling, roll, seconds);
   }
-  onStage('narrator', roll);
+  onStage('narrator', roll, rewrite ? null : { action, ruling, roll, seconds, refereeRaw });
   const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 

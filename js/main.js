@@ -4,7 +4,7 @@ import { requestPersistence } from './db.js';
 import { addSettingsSection } from './ui/settings-screen.js';
 import { renderHome } from './ui/home.js';
 import { renderPlay } from './ui/play.js';
-import { currentWorldId, loadWorld, exportBackup, importBackup, downloadJson } from './game/saves.js';
+import { currentWorldId, loadWorld, exportBackup, importBackup, downloadJson, loadDraft } from './game/saves.js';
 
 const app = {
   root: null,
@@ -81,8 +81,10 @@ async function boot() {
   addSettingsSection(gameSettings);
   addSettingsSection(backupSettings);
 
+  // An interrupted new game wins over the last world, so it can be carried on.
+  const draft = await loadDraft().catch(() => null);
   const id = await currentWorldId();
-  const world = id ? await loadWorld(id).catch(() => null) : null;
+  const world = !draft && id ? await loadWorld(id).catch(() => null) : null;
   if (world && world.playerId) app.play(world);
   else app.home();
 }

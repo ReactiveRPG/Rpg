@@ -32,5 +32,5 @@ A single-player text RPG where an AI game master narrates any world you describe
 - No build step. The files in this folder are the app, served as-is by GitHub Pages from the default branch.
 - `js/game/` holds the rules: pure functions over plain data, tested in Node.
 - `js/ui/` holds the screens. `js/providers/` holds the swappable AI services.
-- Tests: `npm test` runs the unit tests. `npm install && node e2e/smoke.mjs` runs a phone-sized browser playthrough against a fake Gemini.
+- Tests: `npm test` runs the unit tests. `npm install && node e2e/smoke.mjs` runs a phone-sized browser playthrough against a fake Gemini; `node e2e/resume.mjs` checks that turns and new games survive menus, reloads and leaving the app.
 - API keys never go in the repository.

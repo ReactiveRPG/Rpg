@@ -2,7 +2,7 @@
 
 import { h } from './dom.js';
 import { loadSettings } from '../settings.js';
-import { listWorlds, loadWorld, deleteWorld } from '../game/saves.js';
+import { listWorlds, loadWorld, deleteWorld, loadDraft, clearDraft } from '../game/saves.js';
 import { openSettings } from './settings-screen.js';
 import { renderNewGame } from './new-game.js';
 
@@ -10,6 +10,7 @@ export async function renderHome(root, app) {
   const s = await loadSettings();
   const ready = s.provider === 'pc' ? !!s.pcUrl : !!s.geminiKey;  // Auto needs Gemini; the PC is optional
   const worlds = await listWorlds();
+  const draft = await loadDraft().catch(() => null);
   const when = (t) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
   const content = h('div.page',
@@ -17,7 +18,12 @@ export async function renderHome(root, app) {
     !ready ? h('div.notice',
       h('p', 'Welcome. To play, the game needs a Gemini key (or your home PC set up) in Settings.'),
       h('button.primary', { type: 'button', onclick: () => openSettings({ onClose: () => renderHome(root, app) }) }, 'Open Settings')) : null,
-    h('button.primary.wide', { type: 'button', disabled: !ready, onclick: () => renderNewGame(root, app) }, 'New world'),
+    draft ? h('div.notice',
+      h('p', `A new world was being created${draft.world ? `: ${draft.world.premise.title}` : ''}. It was interrupted.`),
+      h('div.row',
+        h('button.primary', { type: 'button', disabled: !ready, onclick: () => renderNewGame(root, app, draft) }, 'Carry on'),
+        h('button', { type: 'button', onclick: async () => { await clearDraft(); renderHome(root, app); } }, 'Discard'))) : null,
+    h('button.primary.wide', { type: 'button', disabled: !ready, onclick: async () => { await clearDraft(); renderNewGame(root, app); } }, 'New world'),
     worlds.length ? h('h3.sub', 'Your worlds') : null,
     worlds.map((w) => h('div.world-row',
       h('button.list-btn', { type: 'button', onclick: async () => app.play(await loadWorld(w.id)) },

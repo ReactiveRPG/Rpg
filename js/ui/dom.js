@@ -62,6 +62,24 @@ export function overlay(title, body, { onClose } = {}) {
   return { el: wrap, close };
 }
 
+// ----- Leaving the app -----
+// Android pauses or closes background tabs, which can kill a request in flight.
+// Screens note how often the page has been hidden, and retry once it is back.
+let hiddenCount = 0;
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenCount++; });
+}
+export const hiddenTimes = () => hiddenCount;
+export function whenVisible() {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise((resolve) => {
+    const on = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', on); resolve(); } };
+    document.addEventListener('visibilitychange', on);
+  });
+}
+/** Failures that leaving the app can cause, and that are worth trying again. */
+export const INTERRUPTED = ['network', 'aborted', 'server', 'empty', 'bad_json'];
+
 export function toast(message, ms = 3000) {
   const t = h('div.toast', message);
   document.body.append(t);

@@ -1,12 +1,12 @@
 // New game: describe a world, accept or redo the premise, make a character,
 // then the opening scene.
 
-import { h, prose } from './dom.js';
-import { ask } from '../providers/index.js';
+import { h, prose, hiddenTimes, whenVisible, INTERRUPTED } from './dom.js';
+import { ask as askNow } from '../providers/index.js';
 import { premiseRequest, characterRequest, suggestRequest } from '../game/ai.js';
 import { worldFromPremise, normaliseChoices, addCharacter } from '../game/creation.js';
 import { playOpening } from '../game/turn.js';
-import { saveWorld } from '../game/saves.js';
+import { saveWorld, saveDraft, clearDraft } from '../game/saves.js';
 import { formatDateTime } from '../game/clock.js';
 import { DEFAULT_PRONOUNS } from '../game/rules.js';
 
@@ -17,9 +17,23 @@ const EXAMPLES = [
   'The American frontier, 1876. A mining town in the Dakota hills during the gold rush.',
 ];
 
-export function renderNewGame(root, app) {
-  let description = '';
-  let world = null;
+/** Like ask(), but a request cut off by leaving the app is sent again once the app is back. */
+async function ask(req) {
+  for (let tries = 0; ; tries++) {
+    const before = hiddenTimes();
+    const res = await askNow(req);
+    if (res.ok || tries >= 2 || hiddenTimes() === before || !INTERRUPTED.includes(res.kind)) return res;
+    await whenVisible();
+  }
+}
+
+/**
+ * draft: an unfinished new game saved earlier ({ stage, description, world, choices }),
+ * so creation carries on from the last finished step instead of starting over.
+ */
+export function renderNewGame(root, app, draft = null) {
+  let description = draft?.description || '';
+  let world = draft?.world || null;
 
   function problem(message, retry) {
     return h('div.problem', h('p', message), h('div.row', h('button', { type: 'button', onclick: retry }, 'Try again'), h('button', { type: 'button', onclick: () => stepWorld() }, 'Back')));
@@ -39,15 +53,17 @@ export function renderNewGame(root, app) {
       box,
       h('div.chips', EXAMPLES.map((ex, i) => h('button.chip', { type: 'button', onclick: () => { box.value = ex; } }, ['Grim fantasy port', '1931 Chicago', '2089 megacity', '1876 gold town'][i]))),
       h('div.row',
-        h('button', { type: 'button', onclick: () => app.home() }, 'Cancel'),
+        h('button', { type: 'button', onclick: async () => { await clearDraft(); app.home(); } }, 'Cancel'),
         h('button.primary', { type: 'button', onclick: () => { description = box.value.trim(); if (description) buildWorld(); } }, 'Build this world'))));
   }
 
   async function buildWorld() {
     root.replaceChildren(busy('Building the world… this can take up to a minute.'));
+    await saveDraft({ stage: 'building', description });
     const res = await ask(premiseRequest(description));
     if (!res.ok) { root.replaceChildren(h('div.page', problem(res.message, buildWorld))); return; }
     world = worldFromPremise(res.data, description);
+    await saveDraft({ stage: 'premise', description, world });
     showPremise(res.fellBack);
   }
 
@@ -122,21 +138,29 @@ export function renderNewGame(root, app) {
 
   async function createCharacter(choices) {
     root.replaceChildren(busy('Writing your backstory, gear, an ally and an enemy…'));
+    await saveDraft({ stage: 'character', description, world, choices });
     const res = await ask(characterRequest(world, choices));
     if (!res.ok) { root.replaceChildren(h('div.page', problem(res.message, () => createCharacter(choices)))); return; }
     // Start from a clean copy each attempt so a retry does not add a second player.
     const fresh = structuredClone(world);
     addCharacter(fresh, choices, res.data);
+    await saveDraft({ stage: 'opening', description, world: fresh });
     opening(fresh);
   }
 
   async function opening(w) {
     root.replaceChildren(busy('Setting the opening scene…'));
-    const res = await playOpening(w);
+    const res = await playOpening(w, { ask });
     if (!res.ok) { root.replaceChildren(h('div.page', problem(res.error.message || 'The opening scene failed.', () => opening(w)))); return; }
     await saveWorld(w);
+    await clearDraft();
     app.play(w);
   }
 
-  stepWorld();
+  // Carry on an unfinished new game from its last finished step.
+  if (draft?.stage === 'building') buildWorld();
+  else if (draft?.stage === 'premise' && world) showPremise(false);
+  else if (draft?.stage === 'character' && world && draft.choices) createCharacter(draft.choices);
+  else if (draft?.stage === 'opening' && world) opening(world);
+  else stepWorld();
 }

@@ -32,6 +32,18 @@ export async function deleteWorld(id) {
   if ((await currentWorldId()) === id) await db.delete('kv', 'currentWorld');
 }
 
+// ----- Work in progress, so leaving the app does not lose it -----
+
+/** A turn that was sent but has not finished: { worldId, baseTurn, action, rewrite, pending }. */
+export const savePendingTurn = (p) => db.put('kv', 'pendingTurn', p);
+export const loadPendingTurn = () => db.get('kv', 'pendingTurn');
+export const clearPendingTurn = () => db.delete('kv', 'pendingTurn');
+
+/** A new game being created: { stage, description, world?, choices? }. */
+export const saveDraft = (d) => db.put('kv', 'newGameDraft', { ...d, at: Date.now() });
+export const loadDraft = () => db.get('kv', 'newGameDraft');
+export const clearDraft = () => db.delete('kv', 'newGameDraft');
+
 /** Everything as one backup object. The API key is left out on purpose. */
 export async function exportBackup() {
   const worlds = await db.all('worlds');
