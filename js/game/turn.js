@@ -22,10 +22,14 @@ export function normaliseRuling(world, data) {
   const d = data || {};
   const skill = d.skill && d.skill !== 'none' && table[d.skill] ? d.skill : null;
   const attribute = ATTRIBUTES.includes(d.attribute) ? d.attribute : (skill ? table[skill].attribute : 'wits');
+  const reason = String(d.reason || '').trim().slice(0, 300);
+  // "Not possible" must come with a reason; without one it is a model glitch,
+  // and the action goes ahead as an ordinary attempt.
+  const possible = d.possible !== false || !reason;
   return {
-    possible: d.possible !== false,
-    reason: String(d.reason || '').slice(0, 300),
-    needsCheck: !!d.needsCheck && d.possible !== false,
+    possible,
+    reason: possible ? '' : reason,
+    needsCheck: !!d.needsCheck && possible,
     skill,
     attribute,
     difficulty: clamp(Math.round(Number(d.difficulty) || 10), DIFFICULTY_MIN, DIFFICULTY_MAX),

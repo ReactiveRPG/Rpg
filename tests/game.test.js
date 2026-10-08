@@ -305,3 +305,12 @@ test('scene positions are kept by the code and sent back next turn', async () =>
   applyChanges(w, [{ op: 'player_moves', placeId: far.id }]);
   assert.equal(w.sceneState, '');
 });
+
+test('"not possible" without a reason is treated as a glitch', () => {
+  const w = newGame();
+  assert.equal(normaliseRuling(w, { possible: false, reason: '' }).possible, true);
+  assert.equal(normaliseRuling(w, { possible: false }).possible, true);
+  const r = normaliseRuling(w, { possible: false, reason: 'You have no gun.' });
+  assert.equal(r.possible, false);
+  assert.equal(r.reason, 'You have no gun.');
+});
