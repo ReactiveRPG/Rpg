@@ -258,102 +258,14 @@ test('history lines do not carry a second date', () => {
   assert.equal(ally.history.at(-1).text, 'Shared a drink.');
 });
 
-test('blocked narration tones down in two steps, the second without recent story text', async () => {
-  const w = newGame();
-  w.log.push({ turn: 0, kind: 'gm', text: 'SECRET EXPLICIT TEXT' });
-  const sent = [];
-  const ask = async (req) => {
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
-    sent.push(req.messages[0].text);
-    if (sent.length < 3) return { ok: false, kind: 'blocked', where: 'reply', message: 'blocked' };
-    return { ok: true, data: { prose: 'Time passes.', changes: [] } };
-  };
-  const r = await playTurn(w, 'I wait', { ask, autoToneDown: true });
-  assert.equal(r.ok, true);
-  assert.equal(r.toned, 2);
-  assert.match(sent[0], /SECRET EXPLICIT TEXT/);
-  assert.match(sent[1], /SECRET EXPLICIT TEXT/);
-  assert.match(sent[1], /FOR THIS REPLY ONLY: the last attempt/);
-  assert.doesNotMatch(sent[2], /SECRET EXPLICIT TEXT/);
-  assert.match(sent[2], /recent story text is left out/);
-  assert.equal(w.log.at(-1).toned, 2);
-});
-
-test('without the switch, a block stops and asks the player', async () => {
+test('a blocked reply stops the turn and asks the player', async () => {
   const w = newGame();
   const ask = async (req) => req.system.startsWith('You are the referee')
     ? { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } }
     : { ok: false, kind: 'blocked', where: 'reply', message: 'blocked' };
-  const r = await playTurn(w, 'I wait', { ask, autoToneDown: false });
+  const r = await playTurn(w, 'I wait', { ask });
   assert.equal(r.ok, false);
   assert.equal(w.turn, 0);
-});
-
-test('step 3 leaves out card history and the player wording', async () => {
-  const w = newGame();
-  const ally = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
-  w.present.push(ally.id);
-  ally.history.push({ date: 'x', text: 'CARD SECRET' });
-  const sent = [];
-  const ask = async (req) => {
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
-    sent.push(req.messages[0].text);
-    if (sent.length < 4) return { ok: false, kind: 'blocked', where: 'reply', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
-    return { ok: true, data: { prose: 'Afterwards, he lights a cigarette.', changes: [] } };
-  };
-  const r = await playTurn(w, 'TYPED WORDING', { ask, autoToneDown: true });
-  assert.equal(r.ok, true);
-  assert.equal(r.toned, 3);
-  assert.equal(r.attempts.length, 3);
-  assert.match(sent[2], /CARD SECRET/);
-  assert.doesNotMatch(sent[3], /CARD SECRET|TYPED WORDING/);
-  assert.match(sent[3], /comes to its end now/);
-});
-
-test('a blocked referee does not stop the turn: lean retry, then a plain ruling', async () => {
-  const w = newGame();
-  w.log.push({ turn: 0, kind: 'gm', text: 'SECRET EXPLICIT TEXT' });
-  const refSent = [];
-  const ask = async (req) => {
-    if (req.system.startsWith('You are the referee')) {
-      refSent.push(req.messages[0].text);
-      return { ok: false, kind: 'blocked', where: 'request', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
-    }
-    return { ok: true, data: { prose: 'Afterwards.', changes: [] } };
-  };
-  const r = await playTurn(w, 'I wait', { ask, autoToneDown: true });
-  assert.equal(r.ok, true);
-  assert.equal(refSent.length, 2);
-  assert.doesNotMatch(refSent[1], /SECRET EXPLICIT TEXT/);
-  assert.ok(!r.roll);
-  assert.equal(r.attempts.filter((a) => a.level === 'referee').length, 2);
-});
-
-test('turns whose text caused a block are left out of later requests', async () => {
-  const w = newGame();
-  w.log.push({ turn: 0, kind: 'gm', text: 'HOT TEXT' });
-  const sent = [];
-  let blockedOnce = false;
-  const ask = async (req) => {
-    const text = req.messages[0].text;
-    sent.push(text);
-    if (/HOT TEXT/.test(text) && !/left out of this request because/.test(text)) {
-      blockedOnce = true;
-      return { ok: false, kind: 'blocked', where: 'request', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
-    }
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
-    return { ok: true, data: { prose: 'Mild aftermath.', changes: [] } };
-  };
-  assert.equal((await playTurn(w, 'I wait', { ask, autoToneDown: true })).ok, true);
-  assert.ok(blockedOnce);
-  assert.deepEqual(w.hotTurns, [0]);
-  sent.length = 0;
-  const r = await playTurn(w, 'I light a cigarette', { ask, autoToneDown: true });
-  assert.equal(r.ok, true);
-  assert.equal(sent.length, 2, 'referee and narrator, no retries');
-  assert.doesNotMatch(sent[1], /HOT TEXT/);
-  assert.match(sent[1], /Mild aftermath/);
-  assert.match(sent[1], /An explicit scene took place here/);
 });
 
 test('reply length setting reaches the narrator', async () => {

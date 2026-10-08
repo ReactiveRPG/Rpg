@@ -12,7 +12,6 @@ export const DEFAULT_SETTINGS = {
   textSize: 'medium',
   undoEnabled: true,
   showDice: true,
-  autoToneDown: true,
   replyLength: 'medium',
   pcUrl: '',          // home PC address, e.g. https://my-pc.tail1234.ts.net
   pcModel: '',        // model loaded in LM Studio

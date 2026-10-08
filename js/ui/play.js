@@ -3,7 +3,6 @@
 
 import { h, prose, toast } from './dom.js';
 import { loadSettings } from '../settings.js';
-import { db } from '../db.js';
 import { playTurn, summarise } from '../game/turn.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
 import { saveWorld } from '../game/saves.js';
@@ -55,7 +54,7 @@ export async function renderPlay(root, ctx) {
 
   function entryEl(e) {
     if (e.kind === 'player') return h('div.msg.player', e.rewrite ? '✎ ' + e.text : e.text);
-    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text), e.toned ? h('p.hint', e.toned >= 3 ? 'Scene closed: Google\'s filter blocked every version of it.' : 'Toned down: Google\'s filter blocked the full version.') : null);
+    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text));
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
     if (e.kind === 'system') return h('div.msg.system', e.text);
     return null;
@@ -88,16 +87,14 @@ export async function renderPlay(root, ctx) {
   function showProblem(res, action, { rewrite = false } = {}) {
     const box = h('div.problem',
       h('p', res.error.message || 'Something went wrong.'),
-      res.error.kind === 'blocked' ? h('p.hint', 'The game already tried twice. This filter is Google\'s own and cannot be switched off; it sometimes fires on ordinary scenes. "Resend toned down" keeps what happens but describes the most graphic moments briefly, for this one reply only.') : null,
       h('div.row',
         h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true }); } }, 'Resend'),
-        res.error.kind === 'blocked' ? h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true, toneDown: true }); } }, 'Resend toned down') : null,
         h('button', { type: 'button', onclick: () => { box.remove(); pending = null; input.value = action; input.focus(); } }, 'Rephrase')));
     log.append(box);
     log.scrollTop = log.scrollHeight;
   }
 
-  async function submit(text, { rewrite = false, resend = false, toneDown = false } = {}) {
+  async function submit(text, { rewrite = false, resend = false } = {}) {
     if (busy) return;
     const action = (text ?? input.value).trim();
     if (!action) return;
@@ -112,11 +109,8 @@ export async function renderPlay(root, ctx) {
     const res = await playTurn(ctx.world, action, {
       rewrite,
       pending: resend ? pending : null,
-      toneDown,
-      autoToneDown: settings.autoToneDown,
       length: settings.replyLength,
       onStage: (stage, roll) => {
-        if (stage === 'toning') setBusy(true, 'Blocked by Google\'s filter; retrying toned down…');
         if (stage === 'narrator') {
           if (roll && settings.showDice) log.querySelector('.pending-action')?.after(h('div.msg.roll.pending-roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`));
           setBusy(true, 'The narrator is writing…');
@@ -125,9 +119,6 @@ export async function renderPlay(root, ctx) {
     });
     setBusy(false);
     log.querySelector('.pending-roll')?.remove();
-    if (res.attempts && res.attempts.length) {
-      db.put('kv', 'lastBlocks', { at: Date.now(), action, attempts: res.attempts, ok: res.ok, toned: res.toned }).catch(() => {});
-    }
     if (!res.ok) {
       log.querySelector('.pending-action')?.remove();
       pending = res.pending || null;

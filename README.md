@@ -24,7 +24,7 @@ A single-player text RPG where an AI game master narrates any world you describe
 
 ## What the playtests found
 
-- Google's PROHIBITED_CONTENT filter can't be switched off. It blocks long explicit scenes on Gemini, mostly when earlier explicit turns are sent back as context. The game tones down automatically and leaves the blocked text out of later requests, but sustained explicit scenes need the home PC.
+- Google's PROHIBITED_CONTENT filter can't be switched off. It blocks long explicit scenes on Gemini, mostly when earlier explicit turns are sent back as context. Explicit play therefore runs on the home PC. Gemini stays as a backup, and when it blocks a reply the game shows a plain message with Resend and Rephrase.
 - On the home PC (a GTX 1080 Ti running Rocinante 12B Q4_K_M with 12k context), turns work, and Short replies keep them quick.
 
 ## For developers

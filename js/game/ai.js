@@ -109,12 +109,6 @@ export const CHANGE_FORMATS = [
   `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
 ].join('\n');
 
-export const TONE_DOWN = [
-  '',
-  'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.',
-  'FOR THIS REPLY ONLY: a content filter blocked earlier attempts, so the recent story text is left out. Continue from the cards. Tell any intimate moments in one or two non-explicit sentences, then move on to what happens next. Everything else as normal.',
-  'FOR THIS REPLY ONLY: a content filter blocked every attempt at this scene, so its details are left out of this request. The intimate scene comes to its end now; do not describe it. Narrate only what comes just after: how people look, what they say, what they do next. Everything else as normal.',
-];
 
 /**
  * Rules repeated at the very end of every narrator request, just before the
@@ -129,11 +123,11 @@ export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
 - Let the scene move at the player's pace: one beat at a time, no skipping ahead, no wrapping things up.
 - End the reply on other people or the scene, never on the player character.`;
 
-export function narratorRequest(world, packet, action, ruling, { toneDown = false, length = 'medium' } = {}) {
+export function narratorRequest(world, packet, action, ruling, { length = 'medium' } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(length),
-    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN[toneDown === true ? 1 : toneDown] : ''}\n\n${FINAL_REMINDER}` }],
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\n${FINAL_REMINDER}` }],
     json: true,
     temperature: 0.95,
     maxTokens: 8000,

@@ -5,7 +5,7 @@
 //  4. the code rolls the dice         8. snapshot for undo (the caller saves)
 
 import { ask as defaultAsk } from '../providers/index.js';
-import { buildPacket, recentTurnNumbers, HOT_PLACEHOLDER } from './packet.js';
+import { buildPacket } from './packet.js';
 import { refereeRequest, narratorRequest, summaryRequest } from './ai.js';
 import { applyChanges } from './changes.js';
 import { check, clamp, OUTCOME_LABEL } from './dice.js';
@@ -79,12 +79,11 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, autoToneDown = false, length = 'medium', ask = defaultAsk, rng, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, length = 'medium', ask = defaultAsk, rng, onStage = () => {} } = {}) {
   let ruling;
   let roll;
   let seconds;
   let refereeRaw = null;
-  const attempts = [];
 
   if (rewrite) {
     ruling = { possible: true, needsCheck: false, duration: 'short', kind: 'other', note: '' };
@@ -92,19 +91,8 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    let ref = await ask(refereeRequest(world, buildPacket(world), action));
-    // The referee sees the recent story too, so Google's filter can block it.
-    // Try once without the recent story; failing that, carry on with a plain
-    // ruling (no roll) so the narrator's own tone-down steps get their chance.
-    if (!ref.ok && ref.kind === 'blocked' && autoToneDown) {
-      attempts.push({ level: 'referee', where: ref.where || '?', reason: ref.reason || '?' });
-      ref = await ask(refereeRequest(world, buildPacket(world, { lean: true }), action));
-      if (!ref.ok && ref.kind === 'blocked') {
-        attempts.push({ level: 'referee', where: ref.where || '?', reason: ref.reason || '?' });
-        ref = { ok: true, data: { possible: true, needsCheck: false, duration: 'short', kind: 'other', note: '' } };
-      }
-    }
-    if (!ref.ok) return { ok: false, error: ref, stage: 'referee', attempts };
+    const ref = await ask(refereeRequest(world, buildPacket(world), action));
+    if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
     roll = resolve(world, ruling, rng);
@@ -122,43 +110,17 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll);
-  // Level 0 is the normal reply. If Google's filter blocks it, the game climbs:
-  //  1. explicit moments told briefly
-  //  2. also leave the recent story text out (the filter judges what is sent too)
-  //  3. also leave out card history and the player's wording; the scene closes
-  //     and only its aftermath is narrated
-  const MAX_LEVEL = 3;
-  const request = (lvl) => {
-    const p = lvl >= 3 ? buildPacket(world, { kind: ruling.kind, bare: true })
-      : lvl === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
-    const act = lvl >= 3 ? "PLAYER'S ACTION: carries on with the intimate scene in progress (wording left out of this request)." : actionText;
-    return ask(narratorRequest(world, p, act, rulingBlock, { toneDown: lvl, length }));
-  };
-  let level = toneDown ? 1 : 0;
-  let nar = await request(level);
-  while (!nar.ok && nar.kind === 'blocked' && (toneDown || autoToneDown) && level < MAX_LEVEL) {
-    attempts.push({ level, where: nar.where || '?', reason: nar.reason || '?' });
-    level = nar.where === 'request' && level < 2 ? 2 : level + 1;
-    onStage('toning', roll);
-    nar = await request(level);
-  }
-  if (!nar.ok) attempts.push({ level, where: nar.where || '?', reason: nar.reason || nar.kind });
-  if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', attempts, pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
+  const nar = await ask(narratorRequest(world, packet, actionText, rulingBlock, { length }));
+  if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();
   if (!prose) {
     return { ok: false, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw },
-      error: { ok: false, kind: 'empty', message: 'Gemini sent back an empty scene. Nothing in your game changed. Resend, or rephrase it.' } };
+      error: { ok: false, kind: 'empty', message: 'The game master sent back an empty scene. Nothing in your game changed. Resend, or rephrase it.' } };
   }
 
   // From here on the turn is accepted.
   pushSnapshot(world);
-  // If the recent story made Google block what was sent, stop sending those turns'
-  // text from now on: later turns then go straight through instead of being
-  // blocked and retried every time.
-  if (attempts.some((a) => a.where === 'request')) {
-    world.hotTurns = [...new Set([...(world.hotTurns || []), ...recentTurnNumbers(world)])].slice(-200);
-  }
   world.turn += 1;
   const t = world.turn;
   world.log.push({ turn: t, kind: 'player', text: action, rewrite: rewrite || undefined });
@@ -169,7 +131,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
-  world.log.push({ turn: t, kind: 'gm', text: prose, toned: level || undefined });
+  world.log.push({ turn: t, kind: 'gm', text: prose });
 
   if (seconds === undefined) seconds = durationSeconds(ruling.duration, ruling.minutes, rng);
   world.clock += seconds;
@@ -180,7 +142,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   world.debug = { referee: refereeRaw, ruling, roll, narrator: nar.data, applied, rejected, models: { narrator: nar.model } };
   world.updatedAt = Date.now();
 
-  return { ok: true, ruling, roll, applied, rejected, seconds, toned: level, attempts };
+  return { ok: true, ruling, roll, applied, rejected, seconds };
 }
 
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */
@@ -211,16 +173,7 @@ export async function summarise(world, { ask = defaultAsk } = {}) {
   if (upTo - (world.summaryUpTo || 0) < SUMMARY_EVERY) return null;
   const entries = world.log.filter((e) => e.turn > (world.summaryUpTo || 0) && e.turn <= upTo && e.kind !== 'roll');
   if (!entries.length) return null;
-  const hot = new Set(world.hotTurns || []);
-  const seenHot = new Set();
-  const text = entries.map((e) => {
-    if (hot.has(e.turn)) {
-      if (seenHot.has(e.turn)) return null;
-      seenHot.add(e.turn);
-      return HOT_PLACEHOLDER;
-    }
-    return e.kind === 'player' ? `Player: ${e.text}` : e.text;
-  }).filter(Boolean).join('\n');
+  const text = entries.map((e) => (e.kind === 'player' ? `Player: ${e.text}` : e.text)).join('\n');
   const res = await ask(summaryRequest(world, world.summary, text));
   if (!res.ok) return null;
   return { summary: res.text.slice(0, 4000), summaryUpTo: upTo };

@@ -70,10 +70,6 @@ export async function ask({ job = 'gm', ...req }) {
   };
 
   let result = await attempt(model);
-  if (result.kind === 'blocked') {
-    result = await narrator.generate({ ...req, model });
-    if (result.status && result.status !== 429) await recordRequest(model);
-  }
   if (!onPc && job === 'world' && !fellBack && (result.kind === 'rate_limit' || transient(result))) {
     model = s.gmModel;
     fellBack = true;

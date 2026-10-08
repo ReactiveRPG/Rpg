@@ -27,21 +27,20 @@ function itemLine(world, it, withHiding = true) {
   return bits.join(' ');
 }
 
-export function personBlock(world, p, { full = true, bare = false } = {}) {
+export function personBlock(world, p, { full = true } = {}) {
   const lines = [];
   const age = ageOf(world, p);
   lines.push(`[${p.id}] ${p.fixed.name} — ${p.fixed.sex}, pronouns ${p.fixed.pronouns}, age ${age}${age >= 18 ? ' (adult)' : ''}${p.dead ? ', DEAD' : ''}`);
   if (p.fixed.looks) lines.push(`  Looks: ${p.fixed.looks}`);
   if (p.fixed.voice) lines.push(`  Voice and manner: ${p.fixed.voice}`);
-  const life = Object.entries(p.life).filter(([k, v]) => v && (!bare || k === 'role' || k === 'job')).map(([k, v]) => `${k}: ${v}`).join('; ');
+  const life = Object.entries(p.life).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');
   if (life) lines.push(`  ${life}`);
   if (!full) return lines.join('\n');
   if (!p.isPlayer) {
     const r = p.relationship;
     lines.push(`  Toward the player: trust ${r.trust}, fear ${r.fear}, attraction ${r.attraction}, respect ${r.respect} (−100 to 100)`);
     const hist = p.history.slice(-HISTORY_LINES);
-    if (bare) lines.push('  Shared history with the player: left out of this request.');
-    else if (hist.length) lines.push('  Shared history with the player:', ...hist.map((h) => `   - ${h.date}: ${h.text}`));
+    if (hist.length) lines.push('  Shared history with the player:', ...hist.map((h) => `   - ${h.date}: ${h.text}`));
     else lines.push('  Shared history with the player: none yet (they have not dealt with the player before)');
     const visible = carriedItems(world, p.id).filter((i) => hiddenLevel(world, i) === 0);
     if (visible.length) lines.push(`  Visibly carrying: ${visible.map((i) => `[${i.id}] ${i.name}${i.qty > 1 ? ' ×' + i.qty : ''}`).join(', ')}`);
@@ -98,9 +97,6 @@ export function premiseBlock(world) {
   return lines.join('\n');
 }
 
-/** Stand-in for a turn whose text has made Google's filter block a request. */
-export const HOT_PLACEHOLDER = '(An explicit scene took place here. Its details are left out of this request; the cards hold what happened.)';
-
 function turnsInLog(world) {
   const byTurn = new Map();
   for (const e of world.log) {
@@ -110,18 +106,11 @@ function turnsInLog(world) {
   return byTurn;
 }
 
-/** Turn numbers that the next packet would show as recent turns. */
-export function recentTurnNumbers(world) {
-  return [...turnsInLog(world).keys()].sort((a, b) => a - b).slice(-RECENT_TURNS);
-}
-
 function recentTurns(world) {
   // Group the log into turns and keep the last few, trimmed.
   const out = [];
   const byTurn = turnsInLog(world);
-  const hot = new Set(world.hotTurns || []);
-  for (const t of recentTurnNumbers(world)) {
-    if (hot.has(t)) { out.push(HOT_PLACEHOLDER); continue; }
+  for (const t of [...byTurn.keys()].sort((a, b) => a - b).slice(-RECENT_TURNS)) {
     for (const e of byTurn.get(t)) {
       if (e.kind === 'player') out.push(`PLAYER: ${e.text}`);
       else if (e.kind === 'gm') out.push(`NARRATOR: ${trim(e.text, 900)}`);
@@ -143,8 +132,7 @@ export function similarBlock(world, kind) {
     same.map((r) => `- turn ${r.turn}: "${trim(r.action, 160)}" → ${trim(r.outcome, 260)}`).join('\n');
 }
 
-export function buildPacket(world, { kind, lean = false, bare = false } = {}) {
-  if (bare) lean = true;
+export function buildPacket(world, { kind } = {}) {
   const p = dateParts(world);
   const parts = [
     `DATE AND TIME: ${formatDateTime(world)} (${partOfDay(p.hour)})`,
@@ -154,17 +142,13 @@ export function buildPacket(world, { kind, lean = false, bare = false } = {}) {
   ];
   const present = world.present.map((id) => world.people[id]).filter(Boolean);
   parts.push(present.length
-    ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x, { bare })).join('\n')
+    ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x)).join('\n')
     : 'OTHERS PRESENT: no carded people. Unnamed crowd members may exist if the place would have them.');
-  if (!bare) parts.push(`CURRENT POSITIONS (as of the last reply): ${world.sceneState || 'not recorded yet; work them out from the last turns'}`);
+  parts.push(`CURRENT POSITIONS (as of the last reply): ${world.sceneState || 'not recorded yet; work them out from the last turns'}`);
   const absent = Object.values(world.people).filter((x) => !x.isPlayer && !world.present.includes(x.id));
   if (absent.length) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
       absent.map((x) => `[${x.id}] ${x.fixed.name} — ${x.fixed.sex}, ${x.fixed.pronouns}${x.life.role ? ', ' + x.life.role : ''}${x.dead ? ', DEAD' : ''}`).join('\n'));
-  }
-  if (lean) {
-    parts.push('LAST FEW TURNS: left out of this request because a content filter blocked it. Continue the scene from the cards above (their shared history says what has been agreed and done).');
-    return parts.join('\n\n');
   }
   if (world.summary) parts.push('STORY SO FAR:\n' + world.summary);
   const recent = recentTurns(world);
