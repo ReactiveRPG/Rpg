@@ -328,3 +328,30 @@ test('a blocked referee does not stop the turn: lean retry, then a plain ruling'
   assert.ok(!r.roll);
   assert.equal(r.attempts.filter((a) => a.level === 'referee').length, 2);
 });
+
+test('turns whose text caused a block are left out of later requests', async () => {
+  const w = newGame();
+  w.log.push({ turn: 0, kind: 'gm', text: 'HOT TEXT' });
+  const sent = [];
+  let blockedOnce = false;
+  const ask = async (req) => {
+    const text = req.messages[0].text;
+    sent.push(text);
+    if (/HOT TEXT/.test(text) && !/left out of this request because/.test(text)) {
+      blockedOnce = true;
+      return { ok: false, kind: 'blocked', where: 'request', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
+    }
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
+    return { ok: true, data: { prose: 'Mild aftermath.', changes: [] } };
+  };
+  assert.equal((await playTurn(w, 'I wait', { ask, autoToneDown: true })).ok, true);
+  assert.ok(blockedOnce);
+  assert.deepEqual(w.hotTurns, [0]);
+  sent.length = 0;
+  const r = await playTurn(w, 'I light a cigarette', { ask, autoToneDown: true });
+  assert.equal(r.ok, true);
+  assert.equal(sent.length, 2, 'referee and narrator, no retries');
+  assert.doesNotMatch(sent[1], /HOT TEXT/);
+  assert.match(sent[1], /Mild aftermath/);
+  assert.match(sent[1], /An explicit scene took place here/);
+});

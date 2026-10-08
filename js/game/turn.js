@@ -5,7 +5,7 @@
 //  4. the code rolls the dice         8. snapshot for undo (the caller saves)
 
 import { ask as defaultAsk } from '../providers/index.js';
-import { buildPacket } from './packet.js';
+import { buildPacket, recentTurnNumbers, HOT_PLACEHOLDER } from './packet.js';
 import { refereeRequest, narratorRequest, summaryRequest } from './ai.js';
 import { applyChanges } from './changes.js';
 import { check, clamp, OUTCOME_LABEL } from './dice.js';
@@ -154,6 +154,12 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   // From here on the turn is accepted.
   pushSnapshot(world);
+  // If the recent story made Google block what was sent, stop sending those turns'
+  // text from now on: later turns then go straight through instead of being
+  // blocked and retried every time.
+  if (attempts.some((a) => a.where === 'request')) {
+    world.hotTurns = [...new Set([...(world.hotTurns || []), ...recentTurnNumbers(world)])].slice(-200);
+  }
   world.turn += 1;
   const t = world.turn;
   world.log.push({ turn: t, kind: 'player', text: action, rewrite: rewrite || undefined });
@@ -206,7 +212,16 @@ export async function summarise(world, { ask = defaultAsk } = {}) {
   if (upTo - (world.summaryUpTo || 0) < SUMMARY_EVERY) return null;
   const entries = world.log.filter((e) => e.turn > (world.summaryUpTo || 0) && e.turn <= upTo && e.kind !== 'roll');
   if (!entries.length) return null;
-  const text = entries.map((e) => (e.kind === 'player' ? `Player: ${e.text}` : e.text)).join('\n');
+  const hot = new Set(world.hotTurns || []);
+  const seenHot = new Set();
+  const text = entries.map((e) => {
+    if (hot.has(e.turn)) {
+      if (seenHot.has(e.turn)) return null;
+      seenHot.add(e.turn);
+      return HOT_PLACEHOLDER;
+    }
+    return e.kind === 'player' ? `Player: ${e.text}` : e.text;
+  }).filter(Boolean).join('\n');
   const res = await ask(summaryRequest(world, world.summary, text));
   if (!res.ok) return null;
   return { summary: res.text.slice(0, 4000), summaryUpTo: upTo };

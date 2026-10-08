@@ -98,16 +98,30 @@ export function premiseBlock(world) {
   return lines.join('\n');
 }
 
-function recentTurns(world) {
-  // Group the log into turns and keep the last few, trimmed.
-  const out = [];
+/** Stand-in for a turn whose text has made Google's filter block a request. */
+export const HOT_PLACEHOLDER = '(An explicit scene took place here. Its details are left out of this request; the cards hold what happened.)';
+
+function turnsInLog(world) {
   const byTurn = new Map();
   for (const e of world.log) {
     if (!byTurn.has(e.turn)) byTurn.set(e.turn, []);
     byTurn.get(e.turn).push(e);
   }
-  const turns = [...byTurn.keys()].sort((a, b) => a - b).slice(-RECENT_TURNS);
-  for (const t of turns) {
+  return byTurn;
+}
+
+/** Turn numbers that the next packet would show as recent turns. */
+export function recentTurnNumbers(world) {
+  return [...turnsInLog(world).keys()].sort((a, b) => a - b).slice(-RECENT_TURNS);
+}
+
+function recentTurns(world) {
+  // Group the log into turns and keep the last few, trimmed.
+  const out = [];
+  const byTurn = turnsInLog(world);
+  const hot = new Set(world.hotTurns || []);
+  for (const t of recentTurnNumbers(world)) {
+    if (hot.has(t)) { out.push(HOT_PLACEHOLDER); continue; }
     for (const e of byTurn.get(t)) {
       if (e.kind === 'player') out.push(`PLAYER: ${e.text}`);
       else if (e.kind === 'gm') out.push(`NARRATOR: ${trim(e.text, 900)}`);
