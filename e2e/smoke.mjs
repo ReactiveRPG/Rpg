@@ -198,6 +198,12 @@ try {
   // Auto mode: Gemini blocks, the home PC takes over, with a footnote.
   await page.click('[aria-label=Settings]');
   await btn('Auto').click();
+  if (!(await btn('Auto').getAttribute('class')).includes('on')) throw new Error('Auto button not highlighted');
+  await btn('Short').click();
+  if (!(await btn('Short').getAttribute('class')).includes('on')) throw new Error('Short button not highlighted');
+  await btn('Large').click();
+  if (!(await btn('Large').getAttribute('class')).includes('on')) throw new Error('Large button not highlighted');
+  if ((await btn('Medium').first().getAttribute('class')).includes(' on')) throw new Error('old choice still highlighted');
   await page.fill('input[placeholder="https://your-pc.tail1234.ts.net"]', 'my-pc.tail1234.ts.net');
   await btn('Check connection').click();
   await page.waitForSelector('text=Connected.');

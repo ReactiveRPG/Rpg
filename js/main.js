@@ -35,8 +35,9 @@ function gameSettings() {
   const lengthButtons = [['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']].map(([id, label]) => h('button.seg', {
     type: 'button',
     onclick: async (e) => {
+      const tapped = e.currentTarget;
+      lengthButtons.forEach((b) => b.classList.toggle('on', b === tapped));
       await saveSettings({ replyLength: id });
-      lengthButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
     },
   }, label));
   loadSettings().then((s) => lengthButtons.forEach((b, i) => b.classList.toggle('on', ['short', 'medium', 'long'][i] === s.replyLength)));

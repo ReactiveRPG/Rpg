@@ -122,8 +122,9 @@ export async function openSettings({ onClose } = {}) {
     type: 'button',
     class: s.provider === p.id ? 'seg on' : 'seg',
     onclick: async (e) => {
+      const tapped = e.currentTarget;
+      serviceButtons.forEach((b) => b.classList.toggle('on', b === tapped));
       await saveSettings({ provider: p.id });
-      serviceButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
       pcBox.style.display = p.id === 'gemini' ? 'none' : '';
     },
   }, p.id === 'pc' ? 'Home PC' : p.id === 'auto' ? 'Auto' : 'Gemini'));
@@ -132,8 +133,9 @@ export async function openSettings({ onClose } = {}) {
     type: 'button',
     class: s.textSize === size ? 'seg on' : 'seg',
     onclick: async (e) => {
+      const tapped = e.currentTarget;
+      sizeButtons.forEach((b) => b.classList.toggle('on', b === tapped));
       await saveSettings({ textSize: size });
-      sizeButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
     },
   }, size[0].toUpperCase() + size.slice(1)));
 
@@ -167,7 +169,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to fill in the list of models your key can use.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 20'));
+    h('p.hint.center', 'Living World · stage 1 · build 21'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });
