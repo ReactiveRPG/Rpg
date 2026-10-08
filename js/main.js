@@ -77,7 +77,16 @@ async function boot() {
 }
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const loadedAt = Date.now();
+  const hadController = !!navigator.serviceWorker.controller;
+  // When a new version takes over: reload straight away if the game has only just
+  // opened, otherwise say so and let the player refresh when it suits them.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    if (Date.now() - loadedAt < 15000) location.reload();
+    else toast('A new version of the game is ready. Pull down to refresh.', 8000);
+  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {}));
 }
 
 boot().catch((err) => {
