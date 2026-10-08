@@ -32,8 +32,19 @@ function gameSettings() {
     box.addEventListener('change', () => saveSettings({ [key]: box.checked }));
     return [h('label.switch', label, box), hint ? h('p.hint', hint) : null];
   };
+  const lengthButtons = [['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']].map(([id, label]) => h('button.seg', {
+    type: 'button',
+    onclick: async (e) => {
+      await saveSettings({ replyLength: id });
+      lengthButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
+    },
+  }, label));
+  loadSettings().then((s) => lengthButtons.forEach((b, i) => b.classList.toggle('on', ['short', 'medium', 'long'][i] === s.replyLength)));
   return h('section',
     h('h3', 'Game'),
+    h('p', 'Reply length'),
+    h('div.segmented', lengthButtons),
+    h('p.hint', 'Shorter replies arrive faster, especially on your home PC.'),
     sw('showDice', 'Show dice rolls', 'Shows each check, e.g. "Lockpicking: rolled 14 + 3 = 17 vs 15 — success".'),
     sw('undoEnabled', 'Undo button', 'Turn off for a no-takebacks game.'),
     sw('autoToneDown', 'Tone down automatically when blocked', 'When Google\'s filter blocks a reply, retry with the most explicit moments told briefly instead of stopping.'));

@@ -80,7 +80,7 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, autoToneDown = false, ask = defaultAsk, rng, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, autoToneDown = false, length = 'medium', ask = defaultAsk, rng, onStage = () => {} } = {}) {
   let ruling;
   let roll;
   let seconds;
@@ -133,7 +133,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     const p = lvl >= 3 ? buildPacket(world, { kind: ruling.kind, bare: true })
       : lvl === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
     const act = lvl >= 3 ? "PLAYER'S ACTION: carries on with the intimate scene in progress (wording left out of this request)." : actionText;
-    return ask(narratorRequest(world, p, act, rulingBlock, { toneDown: lvl }));
+    return ask(narratorRequest(world, p, act, rulingBlock, { toneDown: lvl, length }));
   };
   let level = toneDown ? 1 : 0;
   let nar = await request(level);

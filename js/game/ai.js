@@ -57,13 +57,20 @@ export function refereeRequest(world, packet, action) {
 
 // ---------- Narrator ----------
 
-export function narratorSystem() {
+/** Target length of the narration, chosen in Settings. Shorter replies arrive faster. */
+export const REPLY_LENGTHS = {
+  short: '60–150 words: a tight beat, then stop',
+  medium: '100–220 words',
+  long: '200–400 words',
+};
+
+export function narratorSystem(length = 'medium') {
   return `${NARRATOR_RULES}
 
 You are given a scene packet with every fact the game holds, then the player's action and the code's ruling on it.
 - The ruling is final. If a check failed, the attempt fails; if it succeeded at a cost, it works but something goes wrong or is lost. If the action was not possible, narrate the attempt running into that reason.
 - Narrate only what happens in the time the action takes. Do not skip ahead or invent later events.
-- Keep the prose to about 120–400 words.
+- Keep the prose to about ${REPLY_LENGTHS[length] || REPLY_LENGTHS.medium}. Do not pad it.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
 - The player character cannot die in this version of the game; at worst they are badly hurt or knocked out.
@@ -107,10 +114,10 @@ export const TONE_DOWN = [
   'FOR THIS REPLY ONLY: a content filter blocked every attempt at this scene, so its details are left out of this request. The intimate scene comes to its end now; do not describe it. Narrate only what comes just after: how people look, what they say, what they do next. Everything else as normal.',
 ];
 
-export function narratorRequest(world, packet, action, ruling, { toneDown = false } = {}) {
+export function narratorRequest(world, packet, action, ruling, { toneDown = false, length = 'medium' } = {}) {
   return {
     job: 'gm',
-    system: narratorSystem(),
+    system: narratorSystem(length),
     messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN[toneDown === true ? 1 : toneDown] : ''}` }],
     json: true,
     temperature: 0.95,

@@ -114,6 +114,7 @@ export async function renderPlay(root, ctx) {
       pending: resend ? pending : null,
       toneDown,
       autoToneDown: settings.autoToneDown,
+      length: settings.replyLength,
       onStage: (stage, roll) => {
         if (stage === 'toning') setBusy(true, 'Blocked by Google\'s filter; retrying toned down…');
         if (stage === 'narrator') {

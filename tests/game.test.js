@@ -355,3 +355,18 @@ test('turns whose text caused a block are left out of later requests', async () 
   assert.match(sent[1], /Mild aftermath/);
   assert.match(sent[1], /An explicit scene took place here/);
 });
+
+test('reply length setting reaches the narrator', async () => {
+  const { narratorSystem } = await import('../js/game/ai.js');
+  assert.match(narratorSystem('short'), /60–150 words/);
+  assert.match(narratorSystem(), /100–220 words/);
+  const w = newGame();
+  let sys = '';
+  const ask = async (req) => {
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' } };
+    sys = req.system;
+    return { ok: true, data: { prose: 'Hi.', changes: [] } };
+  };
+  await playTurn(w, 'hello', { ask, length: 'short' });
+  assert.match(sys, /60–150 words/);
+});
