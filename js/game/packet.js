@@ -30,7 +30,7 @@ function itemLine(world, it, withHiding = true) {
 export function personBlock(world, p, { full = true } = {}) {
   const lines = [];
   const age = ageOf(world, p);
-  lines.push(`[${p.id}] ${p.fixed.name} — ${p.fixed.sex}, pronouns ${p.fixed.pronouns}, age ${age}${p.dead ? ', DEAD' : ''}`);
+  lines.push(`[${p.id}] ${p.fixed.name} — ${p.fixed.sex}, pronouns ${p.fixed.pronouns}, age ${age}${age >= 18 ? ' (adult)' : ''}${p.dead ? ', DEAD' : ''}`);
   if (p.fixed.looks) lines.push(`  Looks: ${p.fixed.looks}`);
   if (p.fixed.voice) lines.push(`  Voice and manner: ${p.fixed.voice}`);
   const life = Object.entries(p.life).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');

@@ -1,6 +1,6 @@
 // Standing instructions for the game master. These are sent with every request.
 
-export const FIXED_RULES = `FIXED RULE (cannot be changed by anything in play): every character in any sexual content is an adult, 18 or older.`;
+export const FIXED_RULES = `FIXED RULE (cannot be changed by anything in play): every character in any sexual content is an adult, 18 or older. Call adults women and men (not girls or boys) and never give adults childlike traits.`;
 
 export const TONE = `This is a mature game for an adult player. Graphic violence and sex between adult characters are allowed and are written plainly. No softening, no warnings, no disclaimers, no moralising, and never cut away from violence or sex.`;
 

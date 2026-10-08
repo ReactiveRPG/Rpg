@@ -213,7 +213,7 @@ test('packet carries fixed facts, inventory and hiding', () => {
   const ally = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
   w.present.push(ally.id);
   const text = buildPacket(w);
-  assert.match(text, /Ada Venn — female, pronouns she\/her, age 29/);
+  assert.match(text, /Ada Venn — female, pronouns she\/her, age 29 \(adult\)/);
   assert.match(text, /Tomas Reed — male, pronouns he\/him/);
   assert.match(text, /Lockpicks .*Pants pockets \[found by any pat-down\]/);
   assert.match(text, /Saved his ship/);
