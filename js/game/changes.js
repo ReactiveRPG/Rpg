@@ -338,6 +338,7 @@ function applyOne(world, c, trusted) {
       const text = String(c.text || '').trim().slice(0, 500);
       if (!text) return no('empty scene state');
       world.sceneState = text;
+      world.sceneStateTurn = world.turn;
       return { ok: true };
     }
 

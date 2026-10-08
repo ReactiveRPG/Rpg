@@ -314,3 +314,11 @@ test('"not possible" without a reason is treated as a glitch', () => {
   assert.equal(r.possible, false);
   assert.equal(r.reason, 'You have no gun.');
 });
+
+test('an old positions note is flagged as possibly out of date', () => {
+  const w = newGame();
+  applyChanges(w, [{ op: 'scene_state', text: 'Ada kneeling.' }]);
+  assert.match(buildPacket(w), /CURRENT POSITIONS \(as of the last reply\): Ada kneeling/);
+  w.turn += 2;
+  assert.match(buildPacket(w), /recorded 2 turn\(s\) ago and possibly out of date/);
+});

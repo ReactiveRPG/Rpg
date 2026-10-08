@@ -144,7 +144,9 @@ export function buildPacket(world, { kind } = {}) {
   parts.push(present.length
     ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x)).join('\n')
     : 'OTHERS PRESENT: no carded people. Unnamed crowd members may exist if the place would have them.');
-  parts.push(`CURRENT POSITIONS (as of the last reply): ${world.sceneState || 'not recorded yet; work them out from the last turns'}`);
+  if (!world.sceneState) parts.push('CURRENT POSITIONS: not recorded yet; work them out from the last turns.');
+  else if ((world.sceneStateTurn ?? world.turn) >= world.turn) parts.push(`CURRENT POSITIONS (as of the last reply): ${world.sceneState}`);
+  else parts.push(`CURRENT POSITIONS (recorded ${world.turn - world.sceneStateTurn} turn(s) ago and possibly out of date; the last turns win where they differ): ${world.sceneState}`);
   const absent = Object.values(world.people).filter((x) => !x.isPlayer && !world.present.includes(x.id));
   if (absent.length) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
