@@ -309,3 +309,22 @@ test('step 3 leaves out card history and the player wording', async () => {
   assert.doesNotMatch(sent[3], /CARD SECRET|TYPED WORDING/);
   assert.match(sent[3], /comes to its end now/);
 });
+
+test('a blocked referee does not stop the turn: lean retry, then a plain ruling', async () => {
+  const w = newGame();
+  w.log.push({ turn: 0, kind: 'gm', text: 'SECRET EXPLICIT TEXT' });
+  const refSent = [];
+  const ask = async (req) => {
+    if (req.system.startsWith('You are the referee')) {
+      refSent.push(req.messages[0].text);
+      return { ok: false, kind: 'blocked', where: 'request', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
+    }
+    return { ok: true, data: { prose: 'Afterwards.', changes: [] } };
+  };
+  const r = await playTurn(w, 'I wait', { ask, autoToneDown: true });
+  assert.equal(r.ok, true);
+  assert.equal(refSent.length, 2);
+  assert.doesNotMatch(refSent[1], /SECRET EXPLICIT TEXT/);
+  assert.ok(!r.roll);
+  assert.equal(r.attempts.filter((a) => a.level === 'referee').length, 2);
+});

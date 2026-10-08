@@ -34,7 +34,7 @@ export function openConsole(ctx) {
         h('p', `Last blocked turn: "${blocks.action}" — ${new Date(blocks.at).toLocaleString()}. ${blocks.ok ? `Got through at step ${blocks.toned}.` : 'Never got through.'}`),
         h('div.table-wrap', h('table.sheet',
           h('thead', h('tr', h('th', 'Step'), h('th', 'Blocked in'), h('th', 'Reason'))),
-          h('tbody', blocks.attempts.map((a) => h('tr', h('td', `${a.level}: ${LEVELS[a.level] || ''}`), h('td', a.where === 'request' ? 'what was sent' : a.where === 'reply' ? 'Gemini\'s reply' : a.where), h('td', a.reason)))))),
+          h('tbody', blocks.attempts.map((a) => h('tr', h('td', a.level === 'referee' ? 'referee (ruling)' : `${a.level}: ${LEVELS[a.level] || ''}`), h('td', a.where === 'request' ? 'what was sent' : a.where === 'reply' ? 'Gemini\'s reply' : a.where), h('td', a.reason)))))),
         h('button', { type: 'button', onclick: () => copy(JSON.stringify(blocks, null, 2)) }, 'Copy'))
         : h('p.hint', 'No blocked turns recorded yet.');
     } else if (tab === 'last') {

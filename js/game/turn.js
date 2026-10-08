@@ -85,6 +85,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   let roll;
   let seconds;
   let refereeRaw = null;
+  const attempts = [];
 
   if (rewrite) {
     ruling = { possible: true, needsCheck: false, duration: 'short', kind: 'other', note: '' };
@@ -92,8 +93,19 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    const ref = await ask(refereeRequest(world, buildPacket(world), action));
-    if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
+    let ref = await ask(refereeRequest(world, buildPacket(world), action));
+    // The referee sees the recent story too, so Google's filter can block it.
+    // Try once without the recent story; failing that, carry on with a plain
+    // ruling (no roll) so the narrator's own tone-down steps get their chance.
+    if (!ref.ok && ref.kind === 'blocked' && autoToneDown) {
+      attempts.push({ level: 'referee', where: ref.where || '?', reason: ref.reason || '?' });
+      ref = await ask(refereeRequest(world, buildPacket(world, { lean: true }), action));
+      if (!ref.ok && ref.kind === 'blocked') {
+        attempts.push({ level: 'referee', where: ref.where || '?', reason: ref.reason || '?' });
+        ref = { ok: true, data: { possible: true, needsCheck: false, duration: 'short', kind: 'other', note: '' } };
+      }
+    }
+    if (!ref.ok) return { ok: false, error: ref, stage: 'referee', attempts };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
     roll = resolve(world, ruling, rng);
@@ -117,7 +129,6 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   //  3. also leave out card history and the player's wording; the scene closes
   //     and only its aftermath is narrated
   const MAX_LEVEL = 3;
-  const attempts = [];
   const request = (lvl) => {
     const p = lvl >= 3 ? buildPacket(world, { kind: ruling.kind, bare: true })
       : lvl === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
