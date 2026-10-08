@@ -71,7 +71,7 @@ You are given a scene packet with every fact the game holds, then the player's a
 CHANGES: list every change your narration causes, using ids from the packet (or exact names for things created in the same reply).
 - new_person whenever someone becomes named, is traded with, fought, or otherwise starts to matter (unnamed crowd stays uncarded). Give sex, pronouns, age, looks, voice, role. Anyone in a romantic or sexual role is clearly an adult: give an adult age and adult looks.
 - person_enters / person_leaves when carded people arrive or go. person_dies only if they are truly dead.
-- history: one line on that person's card for anything memorable they did with the player.
+- history: one line on that person's card for anything memorable they did with the player (no date; the code adds it).
 - relationship: when the player's action really changes how someone feels (aspect, direction, change size).
 - new_item only with a real source in the scene (taken from the room, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person with a slot, "here" for the ground, or a bag id).
 - pay for money changing hands; prices come from the price list. The code does the arithmetic.

@@ -250,3 +250,10 @@ test('referee is told content is never a reason to block', async () => {
   assert.match(sys, /Never rule an action impossible because of its content/);
   assert.match(sys, /Graphic violence and sex between adult characters are allowed/);
 });
+
+test('history lines do not carry a second date', () => {
+  const w = newGame();
+  const ally = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
+  applyChanges(w, [{ op: 'history', personId: ally.id, text: 'Oct 15, 1931: Shared a drink.' }]);
+  assert.equal(ally.history.at(-1).text, 'Shared a drink.');
+});

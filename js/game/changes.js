@@ -293,7 +293,8 @@ function applyOne(world, c, trusted) {
       const p = person(world, c.personId);
       if (!p) return no(`no such person "${c.personId}"`);
       if (p.isPlayer) return no('shared history is kept on the other person\'s card');
-      const text = String(c.text || '').trim().slice(0, 300);
+      // The code stamps the date itself; drop one the narrator wrote in.
+      const text = String(c.text || '').trim().replace(/^[A-Z][a-z]{2,8}\.? \d{1,2},? \d{3,4}\s*[:—-]\s*/, '').slice(0, 300);
       if (!text) return no('empty history entry');
       p.history.push({ date: shortDate(world), clock: world.clock, turn: world.turn, text });
       return { ok: true };

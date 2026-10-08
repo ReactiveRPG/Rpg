@@ -68,6 +68,7 @@ function rulingText(ruling, roll, seconds) {
     lines.push('No check needed: the action happens as an ordinary attempt (other people still react as they choose).');
   }
   lines.push(`Time taken: about ${describeSpan(seconds)} (${ruling.duration}). Narrate only this span.`);
+  lines.push('The player character does exactly what the player typed and nothing more: no extra actions, words or holds for them. Everyone else reacts as they choose.');
   if (ruling.note) lines.push(`Referee note: ${ruling.note}`);
   return lines.join('\n');
 }
