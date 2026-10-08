@@ -322,3 +322,23 @@ test('an old positions note is flagged as possibly out of date', () => {
   w.turn += 2;
   assert.match(buildPacket(w), /recorded 2 turn\(s\) ago and possibly out of date/);
 });
+
+test('auto mode: after a switch the scene stays on the home PC for a few turns', async () => {
+  const { PC_STICKY_TURNS } = await import('../js/game/turn.js');
+  const w = newGame();
+  const prefs = [];
+  let first = true;
+  const ask = async (req) => {
+    prefs.push(req.preferPc);
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }, auto: true, via: 'gemini' };
+    const switched = first;
+    first = false;
+    return { ok: true, data: { prose: 'Scene.', changes: [] }, auto: true, via: 'pc', switched };
+  };
+  await playTurn(w, 'one', { ask });
+  assert.equal(w.pcUntilTurn, 1 + PC_STICKY_TURNS);
+  assert.equal(w.log.at(-1).via, 'pc-switched');
+  await playTurn(w, 'two', { ask });
+  assert.deepEqual(prefs.slice(2), [true, true]);
+  assert.equal(w.log.at(-1).via, 'pc');
+});

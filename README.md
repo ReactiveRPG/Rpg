@@ -20,7 +20,7 @@ A single-player text RPG where an AI game master narrates any world you describe
   - automatic saves, plus Export and Import backups
   - a developer console
 
-- **Text services:** the game master runs on either Gemini (free) or a model on your own PC through LM Studio and Tailscale (private and unfiltered). You choose in Settings. Gemini stays available as a backup.
+- **Text services:** the game master runs on Gemini (free), on a model on your own PC through LM Studio and Tailscale (private and unfiltered), or on **Auto**. Auto uses Gemini, hands anything Gemini blocks to the home PC, and stays on the PC for about six turns while that scene continues. A footnote marks replies written on the PC.
 
 ## What the playtests found
 

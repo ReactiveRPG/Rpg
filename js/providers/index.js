@@ -17,7 +17,7 @@ const narrators = {
   }),
 };
 
-export const NARRATOR_PROVIDERS = Object.values(narrators).map((p) => ({ id: p.id, label: p.label }));
+export const NARRATOR_PROVIDERS = [...Object.values(narrators).map((p) => ({ id: p.id, label: p.label })), { id: 'auto', label: 'Auto' }];
 
 /** The chosen text provider, or a specific one by id. */
 export async function getNarrator(id) {
@@ -31,16 +31,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const transient = (r) => r.kind === 'server' || r.kind === 'network';
 
 /**
- * Ask the text provider for a reply.
- *   job: 'gm' (referee and narrator, every turn) or 'world' (world-building, summaries)
- * Busy-server errors are retried quietly a couple of times. World jobs fall
- * back to the game-master model once the bigger model's daily allowance is
- * spent, or when it stays busy or reports its limit was hit.
- * Resolves to the provider result plus { model, fellBack }. Never throws.
+ * One request to one provider: retries busy servers, and for Gemini handles
+ * the world model's daily allowance and fallback to the game-master model.
  */
-export async function ask({ job = 'gm', ...req }) {
-  const narrator = await getNarrator();
-  const s = settingsRef;
+async function askProvider(narrator, s, { job = 'gm', ...req }) {
   const onPc = narrator.id === 'pc';
   // The home PC runs one model for every job and has no daily allowance.
   let model = onPc ? (s.pcModel || '') : job === 'world' ? s.worldModel : s.gmModel;
@@ -75,5 +69,34 @@ export async function ask({ job = 'gm', ...req }) {
     fellBack = true;
     result = await attempt(model);
   }
-  return { ...result, model, fellBack };
+  return { ...result, model, fellBack, via: narrator.id };
+}
+
+/**
+ * Ask for a reply from the service chosen in Settings.
+ *   job: 'gm' (referee and narrator, every turn) or 'world' (world-building, summaries)
+ *   preferPc: in Auto mode, go to the home PC first (a scene Gemini declined is still going)
+ * Auto mode runs on Gemini and sends a request Gemini blocks to the home PC
+ * instead; if the PC is preferred but unreachable, Gemini is used.
+ * Resolves to the result plus { model, fellBack, via, auto, switched }. Never throws.
+ */
+export async function ask({ preferPc = false, ...req }) {
+  const s = await loadSettings();
+  settingsRef = s;
+  if (s.provider !== 'auto') {
+    return askProvider(narrators[s.provider] || narrators.gemini, s, req);
+  }
+  const canPc = !!(s.pcUrl || '').trim();
+  if (preferPc && canPc) {
+    const r = await askProvider(narrators.pc, s, req);
+    if (r.kind !== 'network') return { ...r, auto: true };
+  }
+  const r = await askProvider(narrators.gemini, s, req);
+  if (r.kind === 'blocked' && canPc) {
+    const pc = await askProvider(narrators.pc, s, req);
+    if (pc.ok) return { ...pc, auto: true, switched: true };
+    if (pc.kind === 'network') return { ...r, auto: true, message: `${r.message} Your home PC could not be reached to take over.` };
+    return { ...pc, auto: true, switched: true };
+  }
+  return { ...r, auto: true };
 }

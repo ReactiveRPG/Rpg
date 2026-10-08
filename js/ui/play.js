@@ -54,7 +54,11 @@ export async function renderPlay(root, ctx) {
 
   function entryEl(e) {
     if (e.kind === 'player') return h('div.msg.player', e.rewrite ? '✎ ' + e.text : e.text);
-    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text));
+    if (e.kind === 'gm') {
+      const note = e.via === 'pc-switched' ? 'Written on your home PC: Gemini declined this part.'
+        : e.via === 'pc' ? 'Written on your home PC while this scene continues.' : null;
+      return h('div.msg.gm', prose(e.text), note ? h('p.footnote', note) : null);
+    }
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
     if (e.kind === 'system') return h('div.msg.system', e.text);
     return null;

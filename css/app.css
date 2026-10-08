@@ -158,3 +158,5 @@ ul.plain li { padding: 0.25em 0; border-bottom: 1px solid var(--line); }
 ul.plain li:last-child { border-bottom: none; }
 code { font-size: 0.85em; word-break: break-word; }
 .list-btn:disabled small { color: var(--bad); }
+
+.msg.gm .footnote { font-family: var(--ui); font-size: 0.75em; color: var(--muted); margin: 0.2em 0 0; }

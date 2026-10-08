@@ -89,7 +89,7 @@ export async function openSettings({ onClose } = {}) {
   const pcModel = h('input', { value: s.pcModel, list: 'pc-model-list', placeholder: 'Tap Check connection', autocapitalize: 'off', spellcheck: false });
   const pcKey = h('input', { type: 'password', value: s.pcKey, placeholder: 'Leave blank unless you set one', autocomplete: 'off', autocapitalize: 'off', spellcheck: false });
   const pcStatus = h('p.hint');
-  const pcBox = h('div', { style: { display: s.provider === 'pc' ? '' : 'none' } },
+  const pcBox = h('div', { style: { display: s.provider === 'gemini' ? 'none' : '' } },
     h('label', 'PC address', pcUrl),
     h('label', 'Model', pcModel),
     h('label', 'Key (optional)', pcKey),
@@ -124,9 +124,9 @@ export async function openSettings({ onClose } = {}) {
     onclick: async (e) => {
       await saveSettings({ provider: p.id });
       serviceButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
-      pcBox.style.display = p.id === 'pc' ? '' : 'none';
+      pcBox.style.display = p.id === 'gemini' ? 'none' : '';
     },
-  }, p.id === 'pc' ? 'Home PC' : 'Gemini'));
+  }, p.id === 'pc' ? 'Home PC' : p.id === 'auto' ? 'Auto' : 'Gemini'));
 
   const sizeButtons = ['small', 'medium', 'large', 'huge'].map((size) => h('button.seg', {
     type: 'button',
@@ -148,7 +148,7 @@ export async function openSettings({ onClose } = {}) {
     h('section',
       h('h3', 'Game master runs on'),
       h('div.segmented', serviceButtons),
-      h('p.hint', 'Gemini: free, but Google\'s filter can block explicit scenes. Home PC: private and unfiltered, needs your PC on.'),
+      h('p.hint', 'Gemini: free, but Google\'s filter can block explicit scenes. Home PC: private and unfiltered, needs your PC on. Auto: Gemini, switching to your home PC for what Gemini declines.'),
       pcBox),
     h('section',
       h('h3', 'Gemini requests used today'),
@@ -167,7 +167,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to fill in the list of models your key can use.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 19'));
+    h('p.hint.center', 'Living World · stage 1 · build 20'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

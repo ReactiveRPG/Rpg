@@ -8,7 +8,7 @@ import { renderNewGame } from './new-game.js';
 
 export async function renderHome(root, app) {
   const s = await loadSettings();
-  const ready = s.provider === 'pc' ? !!s.pcUrl : !!s.geminiKey;
+  const ready = s.provider === 'pc' ? !!s.pcUrl : !!s.geminiKey;  // Auto needs Gemini; the PC is optional
   const worlds = await listWorlds();
   const when = (t) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 

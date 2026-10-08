@@ -92,6 +92,17 @@ function fakeGemini(route) {
   ] }));
 }
 
+function fakePc(route) {
+  const url = route.request().url();
+  if (url.endsWith('/v1/models')) return route.fulfill({ json: { data: [{ id: 'rocinante-12b-v1.1' }] } });
+  const b = JSON.parse(route.request().postData());
+  const sys = b.messages[0].content;
+  const content = sys.startsWith('You are the referee')
+    ? JSON.stringify({ possible: true, needsCheck: false, duration: 'moment', kind: 'other' })
+    : JSON.stringify({ prose: 'PC narration: the scene goes on.', changes: [] });
+  return route.fulfill({ json: { choices: [{ message: { content }, finish_reason: 'stop' }] } });
+}
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 393, height: 851 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const errors = [];
@@ -99,6 +110,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('dialog', (d) => d.accept());
 await page.route('https://generativelanguage.googleapis.com/**', fakeGemini);
+await page.route('https://my-pc.tail1234.ts.net/**', fakePc);
 const shot = (n) => page.screenshot({ path: `${process.env.SHOTS || '.'}/${n}.png` });
 const btn = (name) => page.getByRole('button', { name, exact: true });
 
@@ -183,10 +195,29 @@ try {
   await shot('12-console');
   await page.click('[aria-label=Close]');
 
+  // Auto mode: Gemini blocks, the home PC takes over, with a footnote.
+  await page.click('[aria-label=Settings]');
+  await btn('Auto').click();
+  await page.fill('input[placeholder="https://your-pc.tail1234.ts.net"]', 'my-pc.tail1234.ts.net');
+  await btn('Check connection').click();
+  await page.waitForSelector('text=Connected.');
+  await page.click('[aria-label=Close]');
+  await page.waitForSelector('.action-bar textarea');
+  blockNext = 1;
+  await page.fill('.action-bar textarea', 'Something Gemini declines.');
+  await btn('Send').click();
+  await page.waitForSelector('text=PC narration: the scene goes on.');
+  await page.waitForSelector('text=Gemini declined this part');
+  await shot('12b-auto');
+  await page.fill('.action-bar textarea', 'Carry on.');
+  await btn('Send').click();
+  await page.waitForSelector('text=while this scene continues');
+
   // Reload: the save persists.
   await page.reload();
   await page.waitForSelector('text=Turn 1:');
   await page.waitForSelector('text=The Drowned Rat');
+  await page.waitForSelector('text=Gemini declined this part');
   await shot('13-reloaded');
 
   console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'smoke ok');

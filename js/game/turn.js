@@ -15,6 +15,8 @@ import { skillTable, ATTRIBUTES, ACTION_KINDS, DURATIONS, DIFFICULTY_MIN, DIFFIC
 
 const MAX_REJECTED_LOG = 300;
 const MAX_RECENT = 40;
+/** In Auto mode, how many turns stay on the home PC after Gemini declines one. */
+export const PC_STICKY_TURNS = 6;
 
 /** Cleans up the referee's answer so the code can trust its shape. */
 export function normaliseRuling(world, data) {
@@ -88,6 +90,9 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   let roll;
   let seconds;
   let refereeRaw = null;
+  let ref = null;
+  // Auto mode: a scene Gemini declined stays on the home PC for a few turns.
+  const preferPc = (world.pcUntilTurn || 0) > world.turn;
 
   if (rewrite) {
     ruling = { possible: true, needsCheck: false, duration: 'short', kind: 'other', note: '' };
@@ -95,7 +100,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    const ref = await ask(refereeRequest(world, buildPacket(world), action));
+    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc });
     if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
@@ -114,7 +119,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll);
-  const nar = await ask(narratorRequest(world, packet, actionText, rulingBlock, { length }));
+  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();
@@ -135,7 +140,10 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
-  world.log.push({ turn: t, kind: 'gm', text: prose });
+  const switched = nar.switched || (ref && ref.switched);
+  if (switched) world.pcUntilTurn = t + PC_STICKY_TURNS;
+  const via = nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
+  world.log.push({ turn: t, kind: 'gm', text: prose, via });
 
   if (seconds === undefined) seconds = durationSeconds(ruling.duration, ruling.minutes, rng);
   world.clock += seconds;

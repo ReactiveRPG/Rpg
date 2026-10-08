@@ -37,3 +37,53 @@ test('busy server is retried, then world jobs fall back to the game-master model
     globalThis.setTimeout = realTimeout;
   }
 });
+
+const blockedBody = { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } };
+const pcBody = { choices: [{ message: { content: 'From the PC.' }, finish_reason: 'stop' }] };
+
+function fakeNet({ geminiBlocks = true, pcUp = true } = {}) {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    if (url.includes('generativelanguage')) {
+      calls.push('gemini');
+      return { status: 200, json: async () => (geminiBlocks ? blockedBody : okBody) };
+    }
+    calls.push('pc');
+    if (!pcUp) throw new TypeError('Failed to fetch');
+    return { status: 200, json: async () => pcBody };
+  };
+  return calls;
+}
+
+test('auto mode: what Gemini blocks goes to the home PC', async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    await saveSettings({ provider: 'auto', geminiKey: 'k', pcUrl: 'https://pc.ts.net', gmModel: 'lite' });
+    let calls = fakeNet();
+    let r = await ask({ messages: [{ role: 'user', text: 'hi' }] });
+    assert.equal(r.ok, true);
+    assert.equal(r.text, 'From the PC.');
+    assert.equal(r.via, 'pc');
+    assert.equal(r.switched, true);
+    assert.deepEqual(calls, ['gemini', 'pc']);
+
+    calls = fakeNet({ geminiBlocks: false });
+    r = await ask({ messages: [{ role: 'user', text: 'hi' }] });
+    assert.equal(r.via, 'gemini');
+    assert.deepEqual(calls, ['gemini']);
+
+    calls = fakeNet();
+    r = await ask({ messages: [{ role: 'user', text: 'hi' }], preferPc: true });
+    assert.equal(r.via, 'pc');
+    assert.ok(!r.switched);
+    assert.deepEqual(calls, ['pc'], 'a scene on the PC skips Gemini');
+
+    calls = fakeNet({ pcUp: false });
+    r = await ask({ messages: [{ role: 'user', text: 'hi' }] });
+    assert.equal(r.kind, 'blocked');
+    assert.match(r.message, /home PC could not be reached/);
+  } finally {
+    globalThis.fetch = realFetch;
+    await saveSettings({ provider: 'gemini' });
+  }
+});
