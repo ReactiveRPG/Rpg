@@ -104,6 +104,7 @@ export const TONE_DOWN = [
   '',
   'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.',
   'FOR THIS REPLY ONLY: a content filter blocked earlier attempts, so the recent story text is left out. Continue from the cards. Tell any intimate moments in one or two non-explicit sentences, then move on to what happens next. Everything else as normal.',
+  'FOR THIS REPLY ONLY: a content filter blocked every attempt at this scene, so its details are left out of this request. The intimate scene comes to its end now; do not describe it. Narrate only what comes just after: how people look, what they say, what they do next. Everything else as normal.',
 ];
 
 export function narratorRequest(world, packet, action, ruling, { toneDown = false } = {}) {

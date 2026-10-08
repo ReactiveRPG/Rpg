@@ -288,3 +288,24 @@ test('without the switch, a block stops and asks the player', async () => {
   assert.equal(r.ok, false);
   assert.equal(w.turn, 0);
 });
+
+test('step 3 leaves out card history and the player wording', async () => {
+  const w = newGame();
+  const ally = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
+  w.present.push(ally.id);
+  ally.history.push({ date: 'x', text: 'CARD SECRET' });
+  const sent = [];
+  const ask = async (req) => {
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
+    sent.push(req.messages[0].text);
+    if (sent.length < 4) return { ok: false, kind: 'blocked', where: 'reply', reason: 'PROHIBITED_CONTENT', message: 'blocked' };
+    return { ok: true, data: { prose: 'Afterwards, he lights a cigarette.', changes: [] } };
+  };
+  const r = await playTurn(w, 'TYPED WORDING', { ask, autoToneDown: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.toned, 3);
+  assert.equal(r.attempts.length, 3);
+  assert.match(sent[2], /CARD SECRET/);
+  assert.doesNotMatch(sent[3], /CARD SECRET|TYPED WORDING/);
+  assert.match(sent[3], /comes to its end now/);
+});

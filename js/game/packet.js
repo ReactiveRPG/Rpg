@@ -27,20 +27,21 @@ function itemLine(world, it, withHiding = true) {
   return bits.join(' ');
 }
 
-export function personBlock(world, p, { full = true } = {}) {
+export function personBlock(world, p, { full = true, bare = false } = {}) {
   const lines = [];
   const age = ageOf(world, p);
   lines.push(`[${p.id}] ${p.fixed.name} — ${p.fixed.sex}, pronouns ${p.fixed.pronouns}, age ${age}${age >= 18 ? ' (adult)' : ''}${p.dead ? ', DEAD' : ''}`);
   if (p.fixed.looks) lines.push(`  Looks: ${p.fixed.looks}`);
   if (p.fixed.voice) lines.push(`  Voice and manner: ${p.fixed.voice}`);
-  const life = Object.entries(p.life).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');
+  const life = Object.entries(p.life).filter(([k, v]) => v && (!bare || k === 'role' || k === 'job')).map(([k, v]) => `${k}: ${v}`).join('; ');
   if (life) lines.push(`  ${life}`);
   if (!full) return lines.join('\n');
   if (!p.isPlayer) {
     const r = p.relationship;
     lines.push(`  Toward the player: trust ${r.trust}, fear ${r.fear}, attraction ${r.attraction}, respect ${r.respect} (−100 to 100)`);
     const hist = p.history.slice(-HISTORY_LINES);
-    if (hist.length) lines.push('  Shared history with the player:', ...hist.map((h) => `   - ${h.date}: ${h.text}`));
+    if (bare) lines.push('  Shared history with the player: left out of this request.');
+    else if (hist.length) lines.push('  Shared history with the player:', ...hist.map((h) => `   - ${h.date}: ${h.text}`));
     else lines.push('  Shared history with the player: none yet (they have not dealt with the player before)');
     const visible = carriedItems(world, p.id).filter((i) => hiddenLevel(world, i) === 0);
     if (visible.length) lines.push(`  Visibly carrying: ${visible.map((i) => `[${i.id}] ${i.name}${i.qty > 1 ? ' ×' + i.qty : ''}`).join(', ')}`);
@@ -128,7 +129,8 @@ export function similarBlock(world, kind) {
     same.map((r) => `- turn ${r.turn}: "${trim(r.action, 160)}" → ${trim(r.outcome, 260)}`).join('\n');
 }
 
-export function buildPacket(world, { kind, lean = false } = {}) {
+export function buildPacket(world, { kind, lean = false, bare = false } = {}) {
+  if (bare) lean = true;
   const p = dateParts(world);
   const parts = [
     `DATE AND TIME: ${formatDateTime(world)} (${partOfDay(p.hour)})`,
@@ -138,7 +140,7 @@ export function buildPacket(world, { kind, lean = false } = {}) {
   ];
   const present = world.present.map((id) => world.people[id]).filter(Boolean);
   parts.push(present.length
-    ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x)).join('\n')
+    ? 'OTHERS PRESENT (carded people):\n' + present.map((x) => personBlock(world, x, { bare })).join('\n')
     : 'OTHERS PRESENT: no carded people. Unnamed crowd members may exist if the place would have them.');
   const absent = Object.values(world.people).filter((x) => !x.isPlayer && !world.present.includes(x.id));
   if (absent.length) {

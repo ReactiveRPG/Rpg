@@ -111,18 +111,29 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll);
-  // Level 0 is the normal reply. If Google's filter blocks it, level 1 asks for the
-  // explicit moments to be told briefly; level 2 also leaves the recent story text
-  // out of the request, since the filter judges what is sent as well as the reply.
+  // Level 0 is the normal reply. If Google's filter blocks it, the game climbs:
+  //  1. explicit moments told briefly
+  //  2. also leave the recent story text out (the filter judges what is sent too)
+  //  3. also leave out card history and the player's wording; the scene closes
+  //     and only its aftermath is narrated
+  const MAX_LEVEL = 3;
+  const attempts = [];
+  const request = (lvl) => {
+    const p = lvl >= 3 ? buildPacket(world, { kind: ruling.kind, bare: true })
+      : lvl === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
+    const act = lvl >= 3 ? "PLAYER'S ACTION: carries on with the intimate scene in progress (wording left out of this request)." : actionText;
+    return ask(narratorRequest(world, p, act, rulingBlock, { toneDown: lvl }));
+  };
   let level = toneDown ? 1 : 0;
-  let nar = await ask(narratorRequest(world, level === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet, actionText, rulingBlock, { toneDown: level }));
-  while (!nar.ok && nar.kind === 'blocked' && (toneDown || autoToneDown) && level < 2) {
-    level = nar.where === 'request' || level === 1 ? 2 : 1;
+  let nar = await request(level);
+  while (!nar.ok && nar.kind === 'blocked' && (toneDown || autoToneDown) && level < MAX_LEVEL) {
+    attempts.push({ level, where: nar.where || '?', reason: nar.reason || '?' });
+    level = nar.where === 'request' && level < 2 ? 2 : level + 1;
     onStage('toning', roll);
-    const p = level === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
-    nar = await ask(narratorRequest(world, p, actionText, rulingBlock, { toneDown: level }));
+    nar = await request(level);
   }
-  if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
+  if (!nar.ok) attempts.push({ level, where: nar.where || '?', reason: nar.reason || nar.kind });
+  if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', attempts, pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();
   if (!prose) {
@@ -153,7 +164,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   world.debug = { referee: refereeRaw, ruling, roll, narrator: nar.data, applied, rejected, models: { narrator: nar.model } };
   world.updatedAt = Date.now();
 
-  return { ok: true, ruling, roll, applied, rejected, seconds, toned: level };
+  return { ok: true, ruling, roll, applied, rejected, seconds, toned: level, attempts };
 }
 
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */

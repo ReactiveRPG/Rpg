@@ -3,6 +3,7 @@
 
 import { h, prose, toast } from './dom.js';
 import { loadSettings } from '../settings.js';
+import { db } from '../db.js';
 import { playTurn, summarise } from '../game/turn.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
 import { saveWorld } from '../game/saves.js';
@@ -54,7 +55,7 @@ export async function renderPlay(root, ctx) {
 
   function entryEl(e) {
     if (e.kind === 'player') return h('div.msg.player', e.rewrite ? '✎ ' + e.text : e.text);
-    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text), e.toned ? h('p.hint', 'Toned down: Google\'s filter blocked the full version.') : null);
+    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text), e.toned ? h('p.hint', e.toned >= 3 ? 'Scene closed: Google\'s filter blocked every version of it.' : 'Toned down: Google\'s filter blocked the full version.') : null);
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
     if (e.kind === 'system') return h('div.msg.system', e.text);
     return null;
@@ -123,6 +124,9 @@ export async function renderPlay(root, ctx) {
     });
     setBusy(false);
     log.querySelector('.pending-roll')?.remove();
+    if (res.attempts && res.attempts.length) {
+      db.put('kv', 'lastBlocks', { at: Date.now(), action, attempts: res.attempts, ok: res.ok, toned: res.toned }).catch(() => {});
+    }
     if (!res.ok) {
       log.querySelector('.pending-action')?.remove();
       pending = res.pending || null;
