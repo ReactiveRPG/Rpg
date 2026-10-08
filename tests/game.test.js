@@ -370,3 +370,16 @@ test('reply length setting reaches the narrator', async () => {
   await playTurn(w, 'hello', { ask, length: 'short' });
   assert.match(sys, /60–150 words/);
 });
+
+test('player-control reminder is the last thing the narrator reads', async () => {
+  const w = newGame();
+  let text = '';
+  const ask = async (req) => {
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' } };
+    text = req.messages[0].text;
+    return { ok: true, data: { prose: 'Hi.', changes: [] } };
+  };
+  await playTurn(w, 'I keep hold of her', { ask });
+  assert.ok(text.trimEnd().endsWith('End the reply on other people or the scene, never on the player character.'));
+  assert.match(text, /Write NO words, speech, thoughts/);
+});

@@ -167,7 +167,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to fill in the list of models your key can use.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 14'));
+    h('p.hint.center', 'Living World · stage 1 · build 15'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

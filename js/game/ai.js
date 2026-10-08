@@ -70,6 +70,7 @@ export function narratorSystem(length = 'medium') {
 You are given a scene packet with every fact the game holds, then the player's action and the code's ruling on it.
 - The ruling is final. If a check failed, the attempt fails; if it succeeded at a cost, it works but something goes wrong or is lost. If the action was not possible, narrate the attempt running into that reason.
 - Narrate only what happens in the time the action takes. Do not skip ahead or invent later events.
+- Ongoing physical states (holds, positions, what is in someone's hands) continue until someone in the scene changes them.
 - Keep the prose to about ${REPLY_LENGTHS[length] || REPLY_LENGTHS.medium}. Do not pad it.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
@@ -114,11 +115,23 @@ export const TONE_DOWN = [
   'FOR THIS REPLY ONLY: a content filter blocked every attempt at this scene, so its details are left out of this request. The intimate scene comes to its end now; do not describe it. Narrate only what comes just after: how people look, what they say, what they do next. Everything else as normal.',
 ];
 
+/**
+ * Rules repeated at the very end of every narrator request, just before the
+ * model writes. Smaller models follow what they read last much more closely
+ * than a long system prompt.
+ */
+export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
+- The player controls their character completely. Write NO words, speech, thoughts, decisions or new actions for the player character. If the player typed words for their character to say, you may repeat those exact words; never invent any.
+- Show only the result of what the player typed, and how everyone else reacts.
+- Continuity: whatever the player character is already doing or holding carries on unchanged until the player changes it. Do not end, undo or move past it for them.
+- Let the scene move at the player's pace: one beat at a time, no skipping ahead, no wrapping things up.
+- End the reply on other people or the scene, never on the player character.`;
+
 export function narratorRequest(world, packet, action, ruling, { toneDown = false, length = 'medium' } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(length),
-    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN[toneDown === true ? 1 : toneDown] : ''}` }],
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN[toneDown === true ? 1 : toneDown] : ''}\n\n${FINAL_REMINDER}` }],
     json: true,
     temperature: 0.95,
     maxTokens: 8000,
