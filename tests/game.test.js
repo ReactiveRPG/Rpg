@@ -243,3 +243,10 @@ test('clothing destroyed drops what was in its pockets', () => {
   assert.equal(r.applied.length, 1);
   assert.equal(picks.holder, w.currentPlaceId);
 });
+
+test('referee is told content is never a reason to block', async () => {
+  const { refereeSystem } = await import('../js/game/ai.js');
+  const sys = refereeSystem(newGame());
+  assert.match(sys, /Never rule an action impossible because of its content/);
+  assert.match(sys, /Graphic violence and sex between adult characters are allowed/);
+});
