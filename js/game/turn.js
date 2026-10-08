@@ -79,7 +79,7 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, ask = defaultAsk, rng, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, ask = defaultAsk, rng, onStage = () => {} } = {}) {
   let ruling;
   let roll;
   let seconds;
@@ -110,7 +110,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll);
-  const nar = await ask(narratorRequest(world, packet, actionText, rulingBlock));
+  const nar = await ask(narratorRequest(world, packet, actionText, rulingBlock, { toneDown }));
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();

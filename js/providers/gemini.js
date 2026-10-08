@@ -67,7 +67,7 @@ export function interpretResponse(status, body, { model, json } = {}) {
 
   const feedback = body && body.promptFeedback;
   if (feedback && feedback.blockReason) {
-    return fail('blocked', `Gemini blocked the request before replying (reason: ${feedback.blockReason}). Nothing in your game changed. Resend, or rephrase it.`, { reason: feedback.blockReason, retryable: true });
+    return fail('blocked', `Gemini blocked this (reason: ${feedback.blockReason}). Nothing in your game changed.`, { reason: feedback.blockReason, retryable: true });
   }
   const cand = body && body.candidates && body.candidates[0];
   if (!cand) {
@@ -80,11 +80,11 @@ export function interpretResponse(status, body, { model, json } = {}) {
     .join('')
     .trim();
   if (BLOCK_REASONS.has(finish) && !text) {
-    return fail('blocked', `Gemini blocked the reply (reason: ${finish}). Nothing in your game changed. Resend, or rephrase it.`, { reason: finish, retryable: true });
+    return fail('blocked', `Gemini blocked the reply (reason: ${finish}). Nothing in your game changed.`, { reason: finish, retryable: true });
   }
   if (BLOCK_REASONS.has(finish) && finish !== 'OTHER') {
     // Cut off part-way by a filter: a partial reply is worse than none.
-    return fail('blocked', `Gemini stopped the reply part-way (reason: ${finish}). Nothing in your game changed. Resend, or rephrase it.`, { reason: finish, retryable: true });
+    return fail('blocked', `Gemini stopped the reply part-way (reason: ${finish}). Nothing in your game changed.`, { reason: finish, retryable: true });
   }
   if (!text) {
     return fail('empty', 'Gemini sent back an empty reply. Nothing in your game changed. Resend, or rephrase it.', { retryable: true });

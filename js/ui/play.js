@@ -87,14 +87,16 @@ export async function renderPlay(root, ctx) {
   function showProblem(res, action, { rewrite = false } = {}) {
     const box = h('div.problem',
       h('p', res.error.message || 'Something went wrong.'),
+      res.error.kind === 'blocked' ? h('p.hint', 'The game already tried twice. This filter is Google\'s own and cannot be switched off; it sometimes fires on ordinary scenes. "Resend toned down" keeps what happens but describes the most graphic moments briefly, for this one reply only.') : null,
       h('div.row',
         h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true }); } }, 'Resend'),
+        res.error.kind === 'blocked' ? h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true, toneDown: true }); } }, 'Resend toned down') : null,
         h('button', { type: 'button', onclick: () => { box.remove(); pending = null; input.value = action; input.focus(); } }, 'Rephrase')));
     log.append(box);
     log.scrollTop = log.scrollHeight;
   }
 
-  async function submit(text, { rewrite = false, resend = false } = {}) {
+  async function submit(text, { rewrite = false, resend = false, toneDown = false } = {}) {
     if (busy) return;
     const action = (text ?? input.value).trim();
     if (!action) return;
@@ -109,6 +111,7 @@ export async function renderPlay(root, ctx) {
     const res = await playTurn(ctx.world, action, {
       rewrite,
       pending: resend ? pending : null,
+      toneDown,
       onStage: (stage, roll) => {
         if (stage === 'narrator') {
           if (roll && settings.showDice) log.querySelector('.pending-action')?.after(h('div.msg.roll.pending-roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`));

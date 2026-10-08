@@ -18,7 +18,8 @@ const base = `http://localhost:${server.address().port}/`;
 const reply = (obj) => ({ json: { candidates: [{ content: { parts: [{ text: typeof obj === 'string' ? obj : JSON.stringify(obj) }] }, finishReason: 'STOP' }] } });
 
 let narrations = 0;
-let blockNext = false;
+let blockNext = 0;
+let sawToneDown = false;
 function fakeGemini(route) {
   const url = route.request().url();
   if (url.includes('/models?')) {
@@ -71,7 +72,8 @@ function fakeGemini(route) {
   }
   if (sys.startsWith('You keep the running summary')) return route.fulfill(reply('Ada arrived at the Drowned Rat.'));
   // Narrator
-  if (blockNext) { blockNext = false; return route.fulfill({ json: { promptFeedback: { blockReason: 'OTHER' } } }); }
+  if (blockNext) { blockNext--; return route.fulfill({ json: { promptFeedback: { blockReason: 'OTHER' } } }); }
+  if (user.includes('FOR THIS REPLY ONLY')) sawToneDown = true;
   if (user.includes('OPENING SCENE')) {
     return route.fulfill(reply({ prose: 'Rain needles the windows of the **Drowned Rat**. Behind the bar, a bald man wipes a mug.', changes: [
       { op: 'new_person', name: 'Bren', sex: 'male', pronouns: 'he/him', age: 44, looks: 'Bald, broken nose.', voice: 'Low growl.', role: 'barkeep' },
@@ -136,13 +138,14 @@ try {
   await shot('05-turns');
 
   // A blocked narration shows plainly and resends with the same dice.
-  blockNext = true;
+  blockNext = 2;
   await page.fill('.action-bar textarea', 'I pick the lock again.');
   await btn('Send').click();
   await page.waitForSelector('text=blocked');
   await shot('06-blocked');
-  await btn('Resend').click();
+  await btn('Resend toned down').click();
   await page.waitForSelector('text=Turn 3:');
+  if (!sawToneDown) throw new Error('toned-down instruction was not sent');
 
   await btn('Inventory').click();
   await page.waitForSelector('table.sheet');

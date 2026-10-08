@@ -123,11 +123,13 @@ CHANGES: list every change your narration causes, using ids from the packet (or 
 - Do not repeat facts that did not change. Use an empty list if nothing changed.`;
 }
 
-export function narratorRequest(world, packet, action, ruling) {
+export const TONE_DOWN = 'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.';
+
+export function narratorRequest(world, packet, action, ruling, { toneDown = false } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(),
-    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}` }],
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN : ''}` }],
     json: NARRATOR_SCHEMA,
     temperature: 0.95,
     maxTokens: 8000,
