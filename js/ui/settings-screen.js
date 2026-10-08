@@ -51,7 +51,7 @@ export async function openSettings({ onClose } = {}) {
   async function checkKey() {
     await saveKey(true);
     keyStatus.textContent = 'Checking…';
-    const narrator = await getNarrator();
+    const narrator = await getNarrator('gemini');
     const res = await narrator.listModels();
     if (!res.ok) { keyStatus.textContent = res.message; keyStatus.className = 'hint bad'; return; }
     const ids = res.models.map((m) => m.id);
@@ -83,6 +83,51 @@ export async function openSettings({ onClose } = {}) {
     toast('Saved');
   }
 
+  // ----- Which service runs the game master -----
+  const pcUrl = h('input', { value: s.pcUrl, placeholder: 'https://your-pc.tail1234.ts.net', autocapitalize: 'off', spellcheck: false, inputmode: 'url' });
+  const pcModelList = h('datalist#pc-model-list');
+  const pcModel = h('input', { value: s.pcModel, list: 'pc-model-list', placeholder: 'Tap Check connection', autocapitalize: 'off', spellcheck: false });
+  const pcKey = h('input', { type: 'password', value: s.pcKey, placeholder: 'Leave blank unless you set one', autocomplete: 'off', autocapitalize: 'off', spellcheck: false });
+  const pcStatus = h('p.hint');
+  const pcBox = h('div', { style: { display: s.provider === 'pc' ? '' : 'none' } },
+    h('label', 'PC address', pcUrl),
+    h('label', 'Model', pcModel),
+    h('label', 'Key (optional)', pcKey),
+    pcModelList,
+    h('div.row', h('button.primary', { type: 'button', onclick: () => checkPc() }, 'Check connection')),
+    pcStatus);
+
+  async function savePc() {
+    await saveSettings({ pcUrl: pcUrl.value.trim(), pcModel: pcModel.value.trim(), pcKey: pcKey.value.trim() });
+  }
+  [pcUrl, pcModel, pcKey].forEach((el) => el.addEventListener('change', savePc));
+
+  async function checkPc() {
+    await savePc();
+    pcStatus.className = 'hint';
+    pcStatus.textContent = 'Checking…';
+    const res = await (await getNarrator('pc')).listModels();
+    if (!res.ok) { pcStatus.className = 'hint bad'; pcStatus.textContent = res.message; return; }
+    pcModelList.replaceChildren(...res.models.map((m) => h('option', { value: m.id })));
+    if (!res.models.length) { pcStatus.className = 'hint bad'; pcStatus.textContent = 'Connected, but no model is loaded in LM Studio. Load one and check again.'; return; }
+    if (!res.models.some((m) => m.id === pcModel.value.trim())) {
+      pcModel.value = res.models[0].id;
+      await savePc();
+    }
+    pcStatus.className = 'hint good';
+    pcStatus.textContent = `Connected. Using ${pcModel.value}.`;
+  }
+
+  const serviceButtons = NARRATOR_PROVIDERS.map((p) => h('button.seg', {
+    type: 'button',
+    class: s.provider === p.id ? 'seg on' : 'seg',
+    onclick: async (e) => {
+      await saveSettings({ provider: p.id });
+      serviceButtons.forEach((b) => b.classList.toggle('on', b === e.currentTarget));
+      pcBox.style.display = p.id === 'pc' ? '' : 'none';
+    },
+  }, p.id === 'pc' ? 'Home PC' : 'Gemini'));
+
   const sizeButtons = ['small', 'medium', 'large', 'huge'].map((size) => h('button.seg', {
     type: 'button',
     class: s.textSize === size ? 'seg on' : 'seg',
@@ -101,7 +146,12 @@ export async function openSettings({ onClose } = {}) {
       h('div.row', h('button', { type: 'button', onclick: saveKey }, 'Save key'), h('button.primary', { type: 'button', onclick: checkKey }, 'Check key')),
       keyStatus),
     h('section',
-      h('h3', 'Requests used today'),
+      h('h3', 'Game master runs on'),
+      h('div.segmented', serviceButtons),
+      h('p.hint', 'Gemini: free, but Google\'s filter can block explicit scenes. Home PC: private and unfiltered, needs your PC on.'),
+      pcBox),
+    h('section',
+      h('h3', 'Gemini requests used today'),
       usageBox),
     h('section',
       h('h3', 'Text size'),
@@ -109,9 +159,7 @@ export async function openSettings({ onClose } = {}) {
     ...extraSections.map((build) => build()),
     h('section',
       h('details',
-        h('summary', 'Providers and models'),
-        h('label', 'Text provider',
-          h('select', { disabled: NARRATOR_PROVIDERS.length < 2 }, NARRATOR_PROVIDERS.map((p) => h('option', { value: p.id, selected: p.id === s.provider }, p.label)))),
+        h('summary', 'Gemini models and limits'),
         h('label', 'Game-master model (every turn)', gmModel),
         h('label', 'World-building model (world, summaries)', worldModel),
         h('label', 'Game-master daily limit', gmLimit),
@@ -119,7 +167,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to fill in the list of models your key can use.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 12'));
+    h('p.hint.center', 'Living World · stage 1 · build 13'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

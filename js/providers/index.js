@@ -5,18 +5,24 @@
 import { loadSettings } from '../settings.js';
 import { recordRequest, usedToday } from '../usage.js';
 import { createGeminiProvider, compactSchema } from './gemini.js';
+import { createOpenAICompatProvider } from './openai-compat.js';
 
 let settingsRef = null;
 
 const narrators = {
   gemini: createGeminiProvider({ getKey: () => (settingsRef ? settingsRef.geminiKey.trim() : '') }),
+  pc: createOpenAICompatProvider({
+    getBase: () => (settingsRef ? settingsRef.pcUrl : ''),
+    getKey: () => (settingsRef ? (settingsRef.pcKey || '').trim() : ''),
+  }),
 };
 
 export const NARRATOR_PROVIDERS = Object.values(narrators).map((p) => ({ id: p.id, label: p.label }));
 
-export async function getNarrator() {
+/** The chosen text provider, or a specific one by id. */
+export async function getNarrator(id) {
   settingsRef = await loadSettings();
-  return narrators[settingsRef.provider] || narrators.gemini;
+  return narrators[id || settingsRef.provider] || narrators.gemini;
 }
 
 const RETRY_DELAYS_MS = [2000, 5000];
@@ -35,9 +41,11 @@ const transient = (r) => r.kind === 'server' || r.kind === 'network';
 export async function ask({ job = 'gm', ...req }) {
   const narrator = await getNarrator();
   const s = settingsRef;
-  let model = job === 'world' ? s.worldModel : s.gmModel;
+  const onPc = narrator.id === 'pc';
+  // The home PC runs one model for every job and has no daily allowance.
+  let model = onPc ? (s.pcModel || '') : job === 'world' ? s.worldModel : s.gmModel;
   let fellBack = false;
-  if (job === 'world' && (await usedToday(s.worldModel)) >= s.worldDailyLimit) {
+  if (!onPc && job === 'world' && (await usedToday(s.worldModel)) >= s.worldDailyLimit) {
     model = s.gmModel;
     fellBack = true;
   }
@@ -46,7 +54,8 @@ export async function ask({ job = 'gm', ...req }) {
     let r = await narrator.generate({ ...req, model: m });
     if (r.status && r.status !== 429) await recordRequest(m);
     for (const [i, delay] of RETRY_DELAYS_MS.entries()) {
-      if (!transient(r)) break;
+      // An unreachable PC will not answer a few seconds later either.
+      if (!transient(r) || (onPc && r.kind === 'network')) break;
       await sleep(delay);
       // The last retry asks for plain JSON with the shape described in words,
       // in case the strict answer format is what the server is choking on.
@@ -65,7 +74,7 @@ export async function ask({ job = 'gm', ...req }) {
     result = await narrator.generate({ ...req, model });
     if (result.status && result.status !== 429) await recordRequest(model);
   }
-  if (job === 'world' && !fellBack && (result.kind === 'rate_limit' || transient(result))) {
+  if (!onPc && job === 'world' && !fellBack && (result.kind === 'rate_limit' || transient(result))) {
     model = s.gmModel;
     fellBack = true;
     result = await attempt(model);

@@ -13,6 +13,9 @@ export const DEFAULT_SETTINGS = {
   undoEnabled: true,
   showDice: true,
   autoToneDown: true,
+  pcUrl: '',          // home PC address, e.g. https://my-pc.tail1234.ts.net
+  pcModel: '',        // model loaded in LM Studio
+  pcKey: '',          // optional, only if the PC server asks for one
 };
 
 let cache = null;
