@@ -128,7 +128,7 @@ export function similarBlock(world, kind) {
     same.map((r) => `- turn ${r.turn}: "${trim(r.action, 160)}" → ${trim(r.outcome, 260)}`).join('\n');
 }
 
-export function buildPacket(world, { kind } = {}) {
+export function buildPacket(world, { kind, lean = false } = {}) {
   const p = dateParts(world);
   const parts = [
     `DATE AND TIME: ${formatDateTime(world)} (${partOfDay(p.hour)})`,
@@ -144,6 +144,10 @@ export function buildPacket(world, { kind } = {}) {
   if (absent.length) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
       absent.map((x) => `[${x.id}] ${x.fixed.name} — ${x.fixed.sex}, ${x.fixed.pronouns}${x.life.role ? ', ' + x.life.role : ''}${x.dead ? ', DEAD' : ''}`).join('\n'));
+  }
+  if (lean) {
+    parts.push('LAST FEW TURNS: left out of this request because a content filter blocked it. Continue the scene from the cards above (their shared history says what has been agreed and done).');
+    return parts.join('\n\n');
   }
   if (world.summary) parts.push('STORY SO FAR:\n' + world.summary);
   const recent = recentTurns(world);

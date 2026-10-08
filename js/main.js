@@ -35,7 +35,8 @@ function gameSettings() {
   return h('section',
     h('h3', 'Game'),
     sw('showDice', 'Show dice rolls', 'Shows each check, e.g. "Lockpicking: rolled 14 + 3 = 17 vs 15 — success".'),
-    sw('undoEnabled', 'Undo button', 'Turn off for a no-takebacks game.'));
+    sw('undoEnabled', 'Undo button', 'Turn off for a no-takebacks game.'),
+    sw('autoToneDown', 'Tone down automatically when blocked', 'When Google\'s filter blocks a reply, retry with the most explicit moments told briefly instead of stopping.'));
 }
 
 function backupSettings() {

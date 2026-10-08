@@ -137,14 +137,13 @@ try {
   await page.waitForSelector('.msg.roll >> text=Lockpicking: rolled');
   await shot('05-turns');
 
-  // A blocked narration shows plainly and resends with the same dice.
+  // A blocked narration is toned down automatically and marked as such.
   blockNext = 2;
   await page.fill('.action-bar textarea', 'I pick the lock again.');
   await btn('Send').click();
-  await page.waitForSelector('text=blocked');
-  await shot('06-blocked');
-  await btn('Resend toned down').click();
   await page.waitForSelector('text=Turn 3:');
+  await page.waitForSelector('text=Toned down');
+  await shot('06-toned');
   if (!sawToneDown) throw new Error('toned-down instruction was not sent');
 
   await btn('Inventory').click();

@@ -54,7 +54,7 @@ export async function renderPlay(root, ctx) {
 
   function entryEl(e) {
     if (e.kind === 'player') return h('div.msg.player', e.rewrite ? '✎ ' + e.text : e.text);
-    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text));
+    if (e.kind === 'gm') return h('div.msg.gm', prose(e.text), e.toned ? h('p.hint', 'Toned down: Google\'s filter blocked the full version.') : null);
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
     if (e.kind === 'system') return h('div.msg.system', e.text);
     return null;
@@ -112,7 +112,9 @@ export async function renderPlay(root, ctx) {
       rewrite,
       pending: resend ? pending : null,
       toneDown,
+      autoToneDown: settings.autoToneDown,
       onStage: (stage, roll) => {
+        if (stage === 'toning') setBusy(true, 'Blocked by Google\'s filter; retrying toned down…');
         if (stage === 'narrator') {
           if (roll && settings.showDice) log.querySelector('.pending-action')?.after(h('div.msg.roll.pending-roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`));
           setBusy(true, 'The narrator is writing…');

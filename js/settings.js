@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = {
   textSize: 'medium',
   undoEnabled: true,
   showDice: true,
+  autoToneDown: true,
 };
 
 let cache = null;

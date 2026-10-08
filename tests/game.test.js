@@ -257,3 +257,34 @@ test('history lines do not carry a second date', () => {
   applyChanges(w, [{ op: 'history', personId: ally.id, text: 'Oct 15, 1931: Shared a drink.' }]);
   assert.equal(ally.history.at(-1).text, 'Shared a drink.');
 });
+
+test('blocked narration tones down in two steps, the second without recent story text', async () => {
+  const w = newGame();
+  w.log.push({ turn: 0, kind: 'gm', text: 'SECRET EXPLICIT TEXT' });
+  const sent = [];
+  const ask = async (req) => {
+    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } };
+    sent.push(req.messages[0].text);
+    if (sent.length < 3) return { ok: false, kind: 'blocked', where: 'reply', message: 'blocked' };
+    return { ok: true, data: { prose: 'Time passes.', changes: [] } };
+  };
+  const r = await playTurn(w, 'I wait', { ask, autoToneDown: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.toned, 2);
+  assert.match(sent[0], /SECRET EXPLICIT TEXT/);
+  assert.match(sent[1], /SECRET EXPLICIT TEXT/);
+  assert.match(sent[1], /FOR THIS REPLY ONLY: the last attempt/);
+  assert.doesNotMatch(sent[2], /SECRET EXPLICIT TEXT/);
+  assert.match(sent[2], /recent story text is left out/);
+  assert.equal(w.log.at(-1).toned, 2);
+});
+
+test('without the switch, a block stops and asks the player', async () => {
+  const w = newGame();
+  const ask = async (req) => req.system.startsWith('You are the referee')
+    ? { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'wait' } }
+    : { ok: false, kind: 'blocked', where: 'reply', message: 'blocked' };
+  const r = await playTurn(w, 'I wait', { ask, autoToneDown: false });
+  assert.equal(r.ok, false);
+  assert.equal(w.turn, 0);
+});

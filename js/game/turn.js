@@ -80,7 +80,7 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, ask = defaultAsk, rng, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, toneDown = false, autoToneDown = false, ask = defaultAsk, rng, onStage = () => {} } = {}) {
   let ruling;
   let roll;
   let seconds;
@@ -111,7 +111,17 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll);
-  const nar = await ask(narratorRequest(world, packet, actionText, rulingBlock, { toneDown }));
+  // Level 0 is the normal reply. If Google's filter blocks it, level 1 asks for the
+  // explicit moments to be told briefly; level 2 also leaves the recent story text
+  // out of the request, since the filter judges what is sent as well as the reply.
+  let level = toneDown ? 1 : 0;
+  let nar = await ask(narratorRequest(world, level === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet, actionText, rulingBlock, { toneDown: level }));
+  while (!nar.ok && nar.kind === 'blocked' && (toneDown || autoToneDown) && level < 2) {
+    level = nar.where === 'request' || level === 1 ? 2 : 1;
+    onStage('toning', roll);
+    const p = level === 2 ? buildPacket(world, { kind: ruling.kind, lean: true }) : packet;
+    nar = await ask(narratorRequest(world, p, actionText, rulingBlock, { toneDown: level }));
+  }
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();
@@ -132,7 +142,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
-  world.log.push({ turn: t, kind: 'gm', text: prose });
+  world.log.push({ turn: t, kind: 'gm', text: prose, toned: level || undefined });
 
   if (seconds === undefined) seconds = durationSeconds(ruling.duration, ruling.minutes, rng);
   world.clock += seconds;
@@ -143,7 +153,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   world.debug = { referee: refereeRaw, ruling, roll, narrator: nar.data, applied, rejected, models: { narrator: nar.model } };
   world.updatedAt = Date.now();
 
-  return { ok: true, ruling, roll, applied, rejected, seconds };
+  return { ok: true, ruling, roll, applied, rejected, seconds, toned: level };
 }
 
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */

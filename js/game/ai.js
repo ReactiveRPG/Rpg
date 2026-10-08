@@ -100,13 +100,17 @@ export const CHANGE_FORMATS = [
   `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
 ].join('\n');
 
-export const TONE_DOWN = 'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.';
+export const TONE_DOWN = [
+  '',
+  'FOR THIS REPLY ONLY: the last attempt was blocked by a content filter. Keep the same events and outcome, but tell the most explicit moments briefly and without graphic detail, then carry on. Everything else as normal.',
+  'FOR THIS REPLY ONLY: a content filter blocked earlier attempts, so the recent story text is left out. Continue from the cards. Tell any intimate moments in one or two non-explicit sentences, then move on to what happens next. Everything else as normal.',
+];
 
 export function narratorRequest(world, packet, action, ruling, { toneDown = false } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(),
-    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN : ''}` }],
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}${toneDown ? '\n\n' + TONE_DOWN[toneDown === true ? 1 : toneDown] : ''}` }],
     json: true,
     temperature: 0.95,
     maxTokens: 8000,
