@@ -74,41 +74,10 @@ You are given a scene packet with every fact the game holds, then the player's a
 - Keep the prose to about ${REPLY_LENGTHS[length] || REPLY_LENGTHS.medium}. Do not pad it.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
+- Open deals and promises in the packet are what was really agreed. Keep to their terms; people remember them.
 - The player character cannot die in this version of the game; at worst they are badly hurt or knocked out.
-
-CHANGES: list every change your narration causes, using ids from the packet (or exact names for things created in the same reply).
-- new_person whenever someone becomes named, is traded with, fought, or otherwise starts to matter (unnamed crowd stays uncarded). Give sex, pronouns, age, looks, voice, role. Anyone in a romantic or sexual role is clearly an adult: give an adult age and adult looks.
-- person_enters / person_leaves when carded people arrive or go. person_dies only if they are truly dead.
-- history: one line on that person's card for anything memorable they did with the player (no date; the code adds it).
-- relationship: when the player's action really changes how someone feels (aspect, direction, change size).
-- new_item only with a real source in the scene (taken from the room, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person with a slot, "here" for the ground, or a bag id).
-- pay for money changing hands; prices come from the price list. The code does the arithmetic.
-- new_place then player_moves when the player goes somewhere new; player_moves alone for a known place.
-- Do not repeat facts that did not change. Use an empty list if nothing changed.
-
-REPLY FORMAT: JSON only, exactly {"prose": "...", "changes": [ ... ]}.
-Each change is a small object with "op" and ONLY the fields that op uses. Never add empty fields.
-${CHANGE_FORMATS}`;
+- Write the story only: plain prose, no lists, no headings, no JSON. A separate record-keeper updates the game's facts from what you write, so state clearly who arrives, leaves, pays, hands over or takes what.`;
 }
-
-/** One line per change: the op and its fields. Kept short so replies stay short. */
-export const CHANGE_FORMATS = [
-  '{"op":"new_item","name":"","qty":1,"size":"tiny|small|medium|large|huge","weight":0.5,"value":0,"tags":["weapon"],"to":"p1|here|i7","slot":"optional","source":"where it came from"}',
-  '{"op":"move_item","itemId":"i3","to":"p2|here|i7","slot":"optional","qty":"optional, to split a stack"}',
-  '{"op":"use_up_item","itemId":"i3","qty":1,"reason":"eaten|spent|broken|lost"}',
-  '{"op":"pay","from":"p1","to":"p2","amount":10,"reason":""}',
-  '{"op":"new_person","name":"","sex":"female|male|other","pronouns":"she/her","age":30,"looks":"","voice":"","role":"","job":"","mood":"","goal":""}',
-  '{"op":"person_update","personId":"p2","field":"job|home|workplace|faction|mood|goal|status|role","newValue":""}',
-  '{"op":"person_enters","personId":"p2"}  {"op":"person_leaves","personId":"p2"}  {"op":"person_dies","personId":"p2","reason":""}',
-  '{"op":"relationship","personId":"p2","aspect":"trust|fear|attraction|respect","direction":"up|down","change":"slight|notable|major"}',
-  '{"op":"history","personId":"p2","text":"one line"}',
-  '{"op":"new_place","name":"","type":"","description":"","owner":"","usual":"","soundTags":["rain"],"travelMinutes":10}',
-  '{"op":"player_moves","placeId":"l2","travelMinutes":10}',
-  '{"op":"place_update","placeId":"l1","field":"state|owner|usual","newValue":""}',
-  '{"op":"scene_state","text":"one or two lines: where everyone present is, their posture, what each person\'s hands are doing or holding"} (send every reply)',
-  `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
-].join('\n');
-
 
 /**
  * Rules repeated at the very end of every narrator request, just before the
@@ -119,18 +88,83 @@ export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
 - The player controls their character completely. Write NO words, speech, thoughts, decisions or new actions for the player character. If the player typed words for their character to say, you may repeat those exact words; never invent any.
 - Show only the result of what the player typed, and how everyone else reacts.
 - Positions: start from CURRENT POSITIONS in the packet. The player's new action replaces whatever it obviously replaces (standing someone up ends kneeling; a hand doing something new has let go of what it held). Handle such obvious knock-on effects sensibly. Anything the new action does not touch stays as it was.
-- Finish the changes list with a scene_state change describing positions after this reply.
 - Let the scene move at the player's pace: one beat at a time, no skipping ahead, no wrapping things up.
-- End the reply on other people or the scene, never on the player character.`;
+- End the reply on other people or the scene, never on the player character.
+- Reply with the story text only.`;
 
 export function narratorRequest(world, packet, action, ruling, { length = 'medium' } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(length),
     messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\n${FINAL_REMINDER}` }],
-    json: true,
     temperature: 0.95,
-    maxTokens: 8000,
+    maxTokens: 4000,
+  };
+}
+
+/** The story text from a narrator reply, even if the model wrapped it in JSON out of habit. */
+export function proseFrom(res) {
+  if (!res) return '';
+  if (res.data && typeof res.data.prose === 'string') return res.data.prose.trim();
+  const text = String(res.text || '').trim();
+  if (text.startsWith('{') || text.startsWith('```')) {
+    const m = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try { const j = JSON.parse(m); if (j && typeof j.prose === 'string') return j.prose.trim(); } catch { /* not JSON after all */ }
+  }
+  return text;
+}
+
+// ---------- Record-keeper (bookkeeping) ----------
+
+/** One line per change: the op and its fields. Kept short so replies stay short. */
+export const CHANGE_FORMATS = [
+  '{"op":"new_item","name":"","qty":1,"size":"tiny|small|medium|large|huge","weight":0.5,"value":0,"tags":["weapon"],"to":"p1|here|i7","slot":"optional","source":"where it came from"}',
+  '{"op":"move_item","itemId":"i3","to":"p2|here|i7","slot":"optional","qty":"optional, to split a stack"}',
+  '{"op":"use_up_item","itemId":"i3","qty":1,"reason":"eaten|spent|broken|lost"}',
+  '{"op":"pay","from":"p1","to":"p2","amount":10,"reason":""}',
+  '{"op":"new_person","name":"","sex":"female|male|other","pronouns":"she/her","age":30,"looks":"","voice":"","role":"","job":"","mood":"","goal":""}',
+  '{"op":"person_update","personId":"p2","field":"job|home|workplace|faction|mood|goal|status|role","newValue":""}',
+  '{"op":"person_dies","personId":"p2","reason":""}',
+  '{"op":"relationship","personId":"p2","aspect":"trust|fear|attraction|respect","direction":"up|down","change":"slight|notable|major"}',
+  '{"op":"history","personId":"p2","text":"one line"}',
+  '{"op":"new_place","name":"","type":"","description":"","owner":"","usual":"","soundTags":["rain"],"travelMinutes":10}',
+  '{"op":"player_moves","placeId":"l2","travelMinutes":10}',
+  '{"op":"place_update","placeId":"l1","field":"state|owner|usual","newValue":""}',
+  '{"op":"deal_new","personId":"p2","terms":"who owes whom what, for what, by when, in one sentence","due":"optional"}',
+  '{"op":"deal_update","dealId":"d1","status":"done|broken|open","note":"what happened"}',
+  `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
+].join('\n');
+
+export function clerkSystem() {
+  return `You are the record-keeper of a text roleplaying game. You never write story. You read what the narrator just wrote and record what it changed, so the game's facts match the story.
+
+Reply with JSON only, exactly: {"changes": [ ... ], "present": [ ... ], "scene_state": "..."}
+
+CHANGES: every change the new narration states or clearly implies. Use ids from the packet, or exact names for people, places and items created in this same reply. Never invent anything the narration does not say happened. An empty list is fine.
+- new_person whenever someone becomes named, is traded with, fought, or otherwise starts to matter (unnamed crowd stays uncarded). Give sex, pronouns, age, looks, voice, role. Anyone in a romantic or sexual role is an adult: give an adult age.
+- person_dies only if the narration says they are dead.
+- history: one line on a person's card for anything memorable they did with the player (no date; the code adds it).
+- relationship: only when the moment really changes how someone feels about the player.
+- new_item only with a real source in the scene (taken, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person, "here" for the ground, or a bag id).
+- pay for money changing hands, with the amount the narration states. The code does the arithmetic.
+- Moving somewhere else, including getting into a vehicle or entering another room, is a move: new_place (a vehicle is a place too) then player_moves; player_moves alone for a known place.
+- deal_new when an agreement, job, debt or promise is made (payment terms, what is owed, deadlines). deal_update when one is completed, paid, or broken.
+- Each change is a small object with "op" and ONLY the fields that op uses.
+${CHANGE_FORMATS}
+
+PRESENT: the ids (or exact names, for new people) of every carded person physically with the player character at the END of the narration, not counting the player. People who stayed behind, left, or were never there are NOT present. Use [] if the player is alone or only with unnamed people.
+
+SCENE_STATE: one or two lines: where the player and everyone present are, their posture, and what each person's hands are doing or holding, at the end of the narration.`;
+}
+
+export function clerkRequest(world, packet, action, ruling, prose) {
+  return {
+    job: 'gm',
+    system: clerkSystem(),
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\nNEW NARRATION (record what it changed):\n<<<\n${prose}\n>>>` }],
+    json: true,
+    temperature: 0.1,
+    maxTokens: 3000,
   };
 }
 

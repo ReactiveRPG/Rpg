@@ -6,8 +6,8 @@
 
 import { ask as defaultAsk } from '../providers/index.js';
 import { buildPacket } from './packet.js';
-import { refereeRequest, narratorRequest, summaryRequest } from './ai.js';
-import { applyChanges } from './changes.js';
+import { refereeRequest, narratorRequest, clerkRequest, proseFrom, summaryRequest } from './ai.js';
+import { applyChanges, applyPresent } from './changes.js';
 import { check, clamp, OUTCOME_LABEL } from './dice.js';
 import { durationSeconds, describeSpan } from './clock.js';
 import { pushSnapshot, player } from './state.js';
@@ -122,11 +122,16 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc, signal });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
-  const prose = String(nar.data.prose || '').trim();
+  const prose = proseFrom(nar);
   if (!prose) {
     return { ok: false, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw },
       error: { ok: false, kind: 'empty', message: 'The game master sent back an empty scene. Nothing in your game changed. Resend, or rephrase it.' } };
   }
+
+  // The record-keeper reads the new narration and lists what changed.
+  onStage('clerk', roll);
+  const clerk = await ask({ ...clerkRequest(world, packet, actionText, rulingBlock, prose), preferPc, signal });
+  if (!clerk.ok && clerk.kind === 'aborted') return { ok: false, error: clerk, stage: 'clerk', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   // From here on the turn is accepted.
   pushSnapshot(world);
@@ -136,14 +141,15 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   if (roll) world.log.push({ turn: t, kind: 'roll', text: rollText(roll), roll });
   else if (!ruling.possible) world.log.push({ turn: t, kind: 'roll', text: `Not possible: ${ruling.reason}` });
 
-  const { applied, rejected } = applyChanges(world, nar.data.changes, { trusted: rewrite });
+  const { applied, rejected, recordFailed } = keepRecord(world, clerk, { trusted: rewrite });
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
-  const switched = nar.switched || (ref && ref.switched);
+  const switched = nar.switched || (ref && ref.switched) || clerk.switched;
   if (switched) world.pcUntilTurn = t + PC_STICKY_TURNS;
   const via = nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
   world.log.push({ turn: t, kind: 'gm', text: prose, via });
+  if (recordFailed) world.log.push({ turn: t, kind: 'system', text: `The record could not be updated this turn (${clerk.message || 'no reply'}). If money, items or people are now wrong, fix them in Inventory or Here, or Undo and resend.` });
 
   if (seconds === undefined) seconds = durationSeconds(ruling.duration, ruling.minutes, rng);
   world.clock += seconds;
@@ -151,25 +157,47 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   world.recent.push({ turn: t, kind: ruling.kind, action, outcome: prose.replace(/\s+/g, ' ').slice(0, 300) });
   if (world.recent.length > MAX_RECENT) world.recent.splice(0, world.recent.length - MAX_RECENT);
-  world.debug = { referee: refereeRaw, ruling, roll, narrator: nar.data, applied, rejected, models: { narrator: nar.model } };
+  world.debug = { referee: refereeRaw, ruling, roll, narrator: prose, record: clerk.ok ? clerk.data : { failed: clerk.message }, applied, rejected, models: { narrator: nar.model, record: clerk.model } };
   world.updatedAt = Date.now();
 
-  return { ok: true, ruling, roll, applied, rejected, seconds };
+  return { ok: true, ruling, roll, applied, rejected, seconds, recordFailed };
+}
+
+/**
+ * Applies the record-keeper's answer: its changes, who is present, and positions.
+ * A failed or unreadable answer leaves the facts as they were, flagged for the player.
+ */
+export function keepRecord(world, clerk, { trusted = false } = {}) {
+  if (!clerk || !clerk.ok || !clerk.data || typeof clerk.data !== 'object') {
+    return { applied: [], rejected: [], recordFailed: true };
+  }
+  const d = clerk.data;
+  const changes = Array.isArray(d.changes) ? [...d.changes] : [];
+  if (typeof d.scene_state === 'string' && d.scene_state.trim()) changes.push({ op: 'scene_state', text: d.scene_state });
+  const { applied, rejected } = applyChanges(world, changes, { trusted });
+  // Who is here comes last, after any moves and new people in this same reply.
+  if (Array.isArray(d.present)) {
+    const { dropped } = applyPresent(world, d.present);
+    for (const x of dropped) rejected.push({ change: { op: 'present', ref: x.ref }, reason: x.reason });
+  }
+  return { applied, rejected, recordFailed: false };
 }
 
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */
 export async function playOpening(world, { ask = defaultAsk } = {}) {
   const packet = buildPacket(world);
-  const nar = await ask(narratorRequest(world, packet,
-    'OPENING SCENE: the game begins.',
-    'Introduce the player character at the starting place and time: what they see, hear and smell, who is around, and the situation they are in. Bring in the ally or enemy only if they would plausibly be here. Do not act or speak for the character. End on the scene, not a question. Card anyone named.'));
+  const action = 'OPENING SCENE: the game begins.';
+  const ruling = 'Introduce the player character at the starting place and time: what they see, hear and smell, who is around, and the situation they are in. Bring in the ally or enemy only if they would plausibly be here. Do not act or speak for the character. End on the scene, not a question. Name anyone who matters.';
+  const nar = await ask(narratorRequest(world, packet, action, ruling));
   if (!nar.ok) return { ok: false, error: nar };
-  const prose = String(nar.data.prose || '').trim();
-  if (!prose) return { ok: false, error: { kind: 'empty', message: 'Gemini sent back an empty scene. Try again.' } };
-  const { applied, rejected } = applyChanges(world, nar.data.changes);
+  const prose = proseFrom(nar);
+  if (!prose) return { ok: false, error: { kind: 'empty', message: 'The game master sent back an empty scene. Try again.' } };
+  const clerk = await ask(clerkRequest(world, packet, action, ruling, prose));
+  const { applied, rejected, recordFailed } = keepRecord(world, clerk);
   for (const r of rejected) world.rejected.push({ turn: 0, change: r.change, reason: r.reason });
   world.log.push({ turn: 0, kind: 'gm', text: prose });
-  world.debug = { narrator: nar.data, applied, rejected };
+  if (recordFailed) world.log.push({ turn: 0, kind: 'system', text: 'The record could not be updated for the opening scene; people in it may not be carded yet.' });
+  world.debug = { narrator: prose, record: clerk.ok ? clerk.data : { failed: clerk.message }, applied, rejected };
   return { ok: true };
 }
 

@@ -40,6 +40,7 @@ async function fakeGemini(route) {
     return route.fulfill(reply({ possible: true, needsCheck: true, skill: 'Lockpicking', attribute: 'agility', difficulty: 12, duration: 'short', kind: 'other' }));
   }
   if (sys.startsWith('You keep the running summary')) return route.fulfill(reply('Summary.'));
+  if (sys.startsWith('You are the record-keeper')) return route.fulfill(reply({ changes: [] }));
   if (delay) await sleep(delay);
   if (failNext) return route.abort('failed');
   const user = body.contents[0].parts[0].text;

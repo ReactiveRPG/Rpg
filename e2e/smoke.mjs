@@ -19,7 +19,10 @@ const reply = (obj) => ({ json: { candidates: [{ content: { parts: [{ text: type
 
 let narrations = 0;
 let blockNext = 0;
+let lastChanges = [];
 function fakeGemini(route) {
+  // The narrator now writes prose only; its changes are handed to the record-keeper.
+  const narrate = ({ prose, changes }) => { lastChanges = changes; return route.fulfill(reply(prose)); };
   const url = route.request().url();
   if (url.includes('/models?')) {
     return route.fulfill({ json: { models: [
@@ -70,26 +73,32 @@ function fakeGemini(route) {
       : { possible: true, needsCheck: false, duration: 'moment', minutes: 0, kind: 'talk', note: '' }));
   }
   if (sys.startsWith('You keep the running summary')) return route.fulfill(reply('Ada arrived at the Drowned Rat.'));
+  if (sys.startsWith('You are the record-keeper')) {
+    const changes = lastChanges;
+    lastChanges = [];
+    return route.fulfill(reply({ changes, scene_state: 'Ada at the bar.' }));
+  }
   // Narrator
   if (blockNext) { blockNext--; return route.fulfill({ json: { promptFeedback: { blockReason: 'OTHER' } } }); }
   if (user.includes('OPENING SCENE')) {
-    return route.fulfill(reply({ prose: 'Rain needles the windows of the **Drowned Rat**. Behind the bar, a bald man wipes a mug.', changes: [
+    return narrate({ prose: 'Rain needles the windows of the **Drowned Rat**. Behind the bar, a bald man wipes a mug.', changes: [
       { op: 'new_person', name: 'Bren', sex: 'male', pronouns: 'he/him', age: 44, looks: 'Bald, broken nose.', voice: 'Low growl.', role: 'barkeep' },
-    ] }));
+    ] });
   }
   if (user.includes('CANON')) {
-    return route.fulfill(reply({ prose: 'Bren laughs and slides a brass key across the bar.', changes: [
+    return narrate({ prose: 'Bren laughs and slides a brass key across the bar.', changes: [
       { op: 'new_item', name: 'Brass key', size: 'tiny', weight: 0.05, tags: ['key'], to: 'player', slot: 'jacket_pockets' },
       { op: 'history', personId: 'Bren', text: 'Gave the player the cellar key.' },
-    ] }));
+    ] });
   }
   narrations++;
-  return route.fulfill(reply({ prose: `Turn ${narrations}: Bren pours you an ale and takes two pennies.`, changes: [
+  return narrate({ prose: `Turn ${narrations}: Bren pours you an ale and takes two pennies.`, changes: [
     { op: 'new_item', name: 'Mug of ale', size: 'medium', weight: 0.6, value: 2, tags: ['drink'], to: 'player', source: 'bought from Bren' },
     { op: 'pay', from: 'player', to: 'Bren', amount: 2, reason: 'ale' },
     { op: 'person_update', personId: 'Bren', field: 'sex', newValue: 'female' },
     { op: 'relationship', personId: 'Bren', aspect: 'trust', direction: 'up', change: 'slight' },
-  ] }));
+    { op: 'deal_new', personId: 'Bren', terms: 'Carry a crate to the docks; Bren pays 10 pennies on delivery.' },
+  ] });
 }
 
 function fakePc(route) {
@@ -176,6 +185,22 @@ try {
   const brenSex = await page.locator('dt:text-is("Sex") + dd').first().textContent();
   if (brenSex !== 'male') throw new Error('Bren changed sex: ' + brenSex);
   await page.click('[aria-label=Close] >> nth=-1');
+  await page.click('[aria-label=Close]');
+
+  // Deals screen shows what was agreed; it can be closed by hand.
+  await btn('Deals').click();
+  await page.waitForSelector('text=Bren pays 10 pennies on delivery');
+  await page.screenshot({ path: `${process.env.SHOTS || '.'}/09b-deals.png` });
+  await btn('Mark done').click();
+  await page.waitForSelector('text=Finished and broken');
+  await page.click('[aria-label=Close]');
+
+  // Here: someone the game wrongly lists can be marked as not here.
+  await btn('Here').click();
+  await page.waitForSelector('button.list-btn:has-text("Bren")');
+  await page.screenshot({ path: `${process.env.SHOTS || '.'}/09c-here.png` });
+  await btn('Not here').click();
+  await page.waitForSelector('text=No one you know.');
   await page.click('[aria-label=Close]');
 
   // Undo with rewrite.

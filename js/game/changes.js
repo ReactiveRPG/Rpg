@@ -4,7 +4,7 @@
 
 import { FIXED_FACTS, MUTABLE_PERSON_FIELDS, RELATION_ASPECTS, RELATION_STEPS, DEFAULT_PRONOUNS } from './rules.js';
 import { clamp } from './dice.js';
-import { makePerson, makePlace, makeItem, connectPlaces, normSex, findPersonByName, findPlaceByName } from './state.js';
+import { makePerson, makePlace, makeItem, connectPlaces, normSex, findPersonByName, findPlaceByName, newId } from './state.js';
 import { canPlace, findPlace, carrierOf, isPerson, isPlace, isItem, directlyHeld, dependentSlotsInUse, slotAvailable, SLOTS, INSIDE, SIZES } from './inventory.js';
 import { shortDate } from './clock.js';
 
@@ -13,7 +13,10 @@ export const CHANGE_OPS = [
   'new_person', 'person_update', 'person_enters', 'person_leaves', 'person_dies',
   'relationship', 'history',
   'new_place', 'player_moves', 'place_update', 'scene_state',
+  'deal_new', 'deal_update',
 ];
+
+export const DEAL_STATUSES = ['open', 'done', 'broken'];
 
 const PLACE_FIELDS = ['state', 'owner', 'usual'];
 const MAX_CHANGES = 30;
@@ -334,6 +337,32 @@ function applyOne(world, c, trusted) {
       return { ok: true };
     }
 
+    case 'deal_new': {
+      const terms = String(c.terms || '').trim().slice(0, 400);
+      if (!terms) return no('a deal needs its terms');
+      const p = person(world, c.personId);
+      world.deals = world.deals || [];
+      // The same terms with the same person is the same deal.
+      if (world.deals.some((d) => d.status === 'open' && d.terms === terms && d.personId === (p ? p.id : null))) return { ok: true, note: 'already recorded' };
+      const id = newId(world, 'd');
+      world.deals.push({
+        id, personId: p ? p.id : null, withName: p ? p.fixed.name : String(c.personId || '').slice(0, 80),
+        terms, due: String(c.due || '').slice(0, 120), status: 'open',
+        made: shortDate(world), madeTurn: world.turn, notes: [],
+      });
+      return { ok: true, note: `recorded as ${id}` };
+    }
+
+    case 'deal_update': {
+      const d = (world.deals || []).find((x) => x.id === c.dealId);
+      if (!d) return no(`no such deal "${c.dealId}"`);
+      if (!DEAL_STATUSES.includes(c.status)) return no('deal status must be open, done or broken');
+      d.status = c.status;
+      if (c.note) d.notes.push(`${shortDate(world)}: ${String(c.note).slice(0, 200)}`);
+      if (c.status !== 'open') d.closed = shortDate(world);
+      return { ok: true };
+    }
+
     case 'scene_state': {
       const text = String(c.text || '').trim().slice(0, 500);
       if (!text) return no('empty scene state');
@@ -347,3 +376,22 @@ function applyOne(world, c, trusted) {
   }
 }
 
+
+/**
+ * Sets who is with the player from the record-keeper's list. Unknown names and
+ * the dead are left out; the player is never in the list. Returns what was dropped.
+ */
+export function applyPresent(world, list) {
+  if (!Array.isArray(list)) return { dropped: [] };
+  const ids = [];
+  const dropped = [];
+  for (const ref of list.slice(0, 30)) {
+    const p = person(world, ref);
+    if (!p) { dropped.push({ ref, reason: 'no such person' }); continue; }
+    if (p.isPlayer) continue;
+    if (p.dead) { dropped.push({ ref, reason: `${p.fixed.name} is dead` }); continue; }
+    if (!ids.includes(p.id)) ids.push(p.id);
+  }
+  world.present = ids;
+  return { dropped };
+}

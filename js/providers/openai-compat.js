@@ -22,12 +22,8 @@ export function toJsonSchema(schema) {
   return out;
 }
 
-/** The narrator's reply: free-form change objects, so only the outer shape is fixed. */
-const NARRATION_SHAPE = {
-  type: 'object',
-  properties: { prose: { type: 'string' }, changes: { type: 'array', items: { type: 'object' } } },
-  required: ['prose', 'changes'],
-};
+/** A JSON reply whose exact shape is described in the instructions rather than enforced. */
+const ANY_OBJECT = { type: 'object' };
 
 export function cleanBase(url) {
   let u = String(url || '').trim().replace(/\/+$/, '');
@@ -101,7 +97,7 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
       if (req.temperature != null) body.temperature = req.temperature;
       if (req.maxTokens) body.max_tokens = req.maxTokens;
       if (req.json) {
-        const schema = req.json === true ? NARRATION_SHAPE : toJsonSchema(req.json);
+        const schema = req.json === true ? ANY_OBJECT : toJsonSchema(req.json);
         body.response_format = { type: 'json_schema', json_schema: { name: 'reply', schema } };
       }
       // Story replies on an older graphics card can take a while; give up only after several minutes.

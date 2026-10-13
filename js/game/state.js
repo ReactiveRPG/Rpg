@@ -27,6 +27,7 @@ export function createWorld(premise) {
     playerId: null,
     currentPlaceId: null,
     present: [],
+    deals: [],
     people: {},
     places: {},
     items: {},
@@ -186,6 +187,7 @@ export function undoTurns(world, n = 1) {
 export function migrate(world) {
   if (!world || typeof world !== 'object') throw new Error('Not a save file');
   if (!world.version) world.version = 1;
+  if (!Array.isArray(world.deals)) world.deals = [];
   if (world.version > SAVE_VERSION) throw new Error('This save comes from a newer version of the game.');
   // Future: if (world.version === 1) { ...; world.version = 2; }
   return world;

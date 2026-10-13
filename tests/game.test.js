@@ -134,70 +134,6 @@ test('undo restores everything, and only the last 20 turns', () => {
   assert.equal(w.snapshots.length, 20);
 });
 
-test('a full turn with a fake AI: referee, roll, narrator, changes, clock', async () => {
-  const w = newGame();
-  const startClock = w.clock;
-  const calls = [];
-  const ask = async (req) => {
-    calls.push(req);
-    if (calls.length === 1) {
-      return { ok: true, data: { possible: true, needsCheck: true, skill: 'Lockpicking', attribute: 'agility', difficulty: 15, duration: 'task', kind: 'other', note: '' } };
-    }
-    return { ok: true, data: { prose: 'The lock gives.', changes: [
-      { op: 'new_person', name: 'Bren', sex: 'male', pronouns: 'he/him', age: 40, looks: 'Bald.', role: 'barkeep' },
-      { op: 'history', personId: 'Bren', text: 'Watched the player pick the cellar lock.' },
-      { op: 'person_update', personId: 'Bren', field: 'pronouns', newValue: 'she/her' },
-    ] } };
-  };
-  const r = await playTurn(w, 'I pick the cellar lock', { ask, rng: seq(d20(10), 0.5) });
-  assert.equal(r.ok, true);
-  assert.equal(r.roll.total, 10 + 3 + 2);
-  assert.equal(r.roll.outcome, 'success');
-  assert.equal(w.turn, 1);
-  assert.ok(w.clock - startClock >= 15 * 60 && w.clock - startClock <= 30 * 60);
-  const bren = Object.values(w.people).find((p) => p.fixed.name === 'Bren');
-  assert.equal(bren.fixed.pronouns, 'he/him');
-  assert.equal(bren.history.length, 1);
-  assert.ok(w.present.includes(bren.id));
-  assert.equal(w.rejected.length, 1);
-  assert.equal(w.snapshots.length, 1);
-  assert.match(calls[1].messages[0].text, /SUCCEEDS/);
-  // Undo takes it all back.
-  const back = undoTurns(w, 1);
-  assert.equal(back.turn, 0);
-  assert.equal(back.clock, startClock);
-  assert.ok(!Object.values(back.people).some((p) => p.fixed.name === 'Bren'));
-});
-
-test('a failed narration keeps the dice for the resend', async () => {
-  const w = newGame();
-  let n = 0;
-  const ask = async () => {
-    n++;
-    if (n === 1) return { ok: true, data: { possible: true, needsCheck: true, skill: 'Lockpicking', difficulty: 15, duration: 'short', kind: 'other' } };
-    if (n === 2) return { ok: false, kind: 'blocked', message: 'blocked' };
-    return { ok: true, data: { prose: 'Done.', changes: [] } };
-  };
-  const first = await playTurn(w, 'pick it', { ask, rng: seq(d20(2)) });
-  assert.equal(first.ok, false);
-  assert.equal(w.turn, 0, 'nothing changed');
-  const second = await playTurn(w, 'pick it', { ask, pending: first.pending, rng: seq(d20(20)) });
-  assert.equal(second.ok, true);
-  assert.equal(second.roll.die, 2, 'same roll as before');
-  assert.equal(n, 3, 'referee not asked again');
-});
-
-test('rewrite is canon: no referee, no roll, relaxed item sources', async () => {
-  const w = newGame();
-  const reqs = [];
-  const ask = async (req) => { reqs.push(req); return { ok: true, data: { prose: 'She laughs and hands you a key.', changes: [{ op: 'new_item', name: 'Brass key', size: 'tiny', tags: ['key'], to: 'player' }] } }; };
-  const r = await playTurn(w, 'Mirela laughs and hands me a key', { ask, rewrite: true });
-  assert.equal(r.ok, true);
-  assert.equal(reqs.length, 1);
-  assert.equal(r.roll, undefined);
-  assert.ok(Object.values(w.items).some((i) => i.name === 'Brass key' && !i.gone));
-});
-
 test('clock and durations', () => {
   const w = newGame();
   assert.equal(formatDateTime(w), 'Saturday, March 4, 1247 · 9:00 pm'.replace('Saturday', formatDateTime(w).split(',')[0]));
@@ -268,34 +204,6 @@ test('a blocked reply stops the turn and asks the player', async () => {
   assert.equal(w.turn, 0);
 });
 
-test('reply length setting reaches the narrator', async () => {
-  const { narratorSystem } = await import('../js/game/ai.js');
-  assert.match(narratorSystem('short'), /60–150 words/);
-  assert.match(narratorSystem(), /100–220 words/);
-  const w = newGame();
-  let sys = '';
-  const ask = async (req) => {
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' } };
-    sys = req.system;
-    return { ok: true, data: { prose: 'Hi.', changes: [] } };
-  };
-  await playTurn(w, 'hello', { ask, length: 'short' });
-  assert.match(sys, /60–150 words/);
-});
-
-test('player-control reminder is the last thing the narrator reads', async () => {
-  const w = newGame();
-  let text = '';
-  const ask = async (req) => {
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' } };
-    text = req.messages[0].text;
-    return { ok: true, data: { prose: 'Hi.', changes: [] } };
-  };
-  await playTurn(w, 'I keep hold of her', { ask });
-  assert.ok(text.trimEnd().endsWith('End the reply on other people or the scene, never on the player character.'));
-  assert.match(text, /Write NO words, speech, thoughts/);
-});
-
 test('scene positions are kept by the code and sent back next turn', async () => {
   const w = newGame();
   applyChanges(w, [{ op: 'scene_state', text: 'Ada standing at the bar, left hand on her mug.' }]);
@@ -323,22 +231,189 @@ test('an old positions note is flagged as possibly out of date', () => {
   assert.match(buildPacket(w), /recorded 2 turn\(s\) ago and possibly out of date/);
 });
 
+
+// ----- Turns with the record-keeper: a fake AI that answers each role separately -----
+
+const roleOf = (req) => req.system.startsWith('You are the referee') ? 'referee'
+  : req.system.startsWith('You are the record-keeper') ? 'clerk' : 'narrator';
+
+function fakeAI(handlers) {
+  const calls = [];
+  const ask = async (req) => {
+    const role = roleOf(req);
+    calls.push({ role, req });
+    const h = handlers[role];
+    const out = typeof h === 'function' ? await h(req, calls) : h;
+    return out || { ok: true, text: '', data: { changes: [] } };
+  };
+  return { ask, calls };
+}
+const say = (text, extra = {}) => ({ ok: true, text, ...extra });
+const record = (data, extra = {}) => ({ ok: true, data, ...extra });
+
+test('a full turn: referee, roll, narrator writes prose, record-keeper records it', async () => {
+  const w = newGame();
+  const startClock = w.clock;
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: true, skill: 'Lockpicking', attribute: 'agility', difficulty: 15, duration: 'task', kind: 'other' }),
+    narrator: say('The lock gives. Bren, the bald barkeep, watches you from the stairs.'),
+    clerk: record({ changes: [
+      { op: 'new_person', name: 'Bren', sex: 'male', pronouns: 'he/him', age: 40, looks: 'Bald.', role: 'barkeep' },
+      { op: 'history', personId: 'Bren', text: 'Watched the player pick the cellar lock.' },
+      { op: 'person_update', personId: 'Bren', field: 'pronouns', newValue: 'she/her' },
+    ], present: ['Bren'], scene_state: 'Ada at the cellar door, Bren on the stairs.' }),
+  });
+  const r = await playTurn(w, 'I pick the cellar lock', { ask, rng: seq(d20(10), 0.5) });
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls.map((c) => c.role), ['referee', 'narrator', 'clerk']);
+  assert.equal(r.roll.total, 10 + 3 + 2);
+  assert.match(calls[1].req.messages[0].text, /SUCCEEDS/);
+  assert.match(calls[2].req.messages[0].text, /The lock gives\./, 'record-keeper reads the new narration');
+  assert.equal(calls[1].req.json, undefined, 'narrator writes plain prose');
+  assert.ok(w.clock - startClock >= 15 * 60 && w.clock - startClock <= 30 * 60);
+  const bren = Object.values(w.people).find((p) => p.fixed.name === 'Bren');
+  assert.equal(bren.fixed.pronouns, 'he/him');
+  assert.equal(bren.history.length, 1);
+  assert.deepEqual(w.present, [bren.id]);
+  assert.equal(w.sceneState, 'Ada at the cellar door, Bren on the stairs.');
+  assert.equal(w.rejected.length, 1);
+  assert.equal(w.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'The lock gives. Bren, the bald barkeep, watches you from the stairs.');
+  const back = undoTurns(w, 1);
+  assert.equal(back.turn, 0);
+  assert.ok(!Object.values(back.people).some((p) => p.fixed.name === 'Bren'));
+});
+
+test('the present list drops people left behind (into a cab)', async () => {
+  const w = newGame();
+  const tomas = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
+  const mirela = Object.values(w.people).find((p) => p.fixed.name === 'Mirela Dusk');
+  w.present = [tomas.id, mirela.id];
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'short', kind: 'move' }),
+    narrator: say('You slide into the back of a cab. The driver, a heavy man called Sal, pulls away from the curb.'),
+    clerk: record({ changes: [
+      { op: 'new_place', name: 'Yellow cab', type: 'vehicle', description: 'Cracked seats.' },
+      { op: 'player_moves', placeId: 'Yellow cab' },
+      { op: 'new_person', name: 'Sal', sex: 'male', pronouns: 'he/him', age: 50, looks: 'Heavy.', role: 'cab driver' },
+    ], present: ['Sal', 'Ghost Person'] }),
+  });
+  await playTurn(w, 'I get in a cab', { ask });
+  const sal = Object.values(w.people).find((p) => p.fixed.name === 'Sal');
+  assert.deepEqual(w.present, [sal.id]);
+  assert.equal(w.places[w.currentPlaceId].name, 'Yellow cab');
+  assert.ok(w.rejected.some((r) => r.change.op === 'present' && /no such person/.test(r.reason)));
+});
+
+test('deals are recorded, shown every turn, and closed', async () => {
+  const w = newGame();
+  const tomas = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
+  applyChanges(w, [{ op: 'deal_new', personId: tomas.id, terms: 'Deliver the parcel to Big Jim; Tomas pays $30 now and $20 on return.' }]);
+  assert.equal(w.deals.length, 1);
+  assert.match(buildPacket(w), /OPEN DEALS AND PROMISES[\s\S]*\$30 now and \$20 on return/);
+  const id = w.deals[0].id;
+  applyChanges(w, [{ op: 'deal_update', dealId: id, status: 'done', note: 'Paid in full.' }]);
+  assert.equal(w.deals[0].status, 'done');
+  assert.doesNotMatch(buildPacket(w), /OPEN DEALS/);
+  const r = applyChanges(w, [{ op: 'deal_update', dealId: 'd999', status: 'done' }, { op: 'deal_new', terms: '' }]);
+  assert.equal(r.rejected.length, 2);
+});
+
+test('a failed record-keeper keeps the story but flags it; nothing changes', async () => {
+  const w = newGame();
+  const money = w.people[w.playerId].money;
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'trade' }),
+    narrator: say('Bren takes your money.'),
+    clerk: { ok: false, kind: 'bad_json', message: 'unreadable' },
+  });
+  const r = await playTurn(w, 'I pay Bren', { ask });
+  assert.equal(r.ok, true);
+  assert.equal(r.recordFailed, true);
+  assert.equal(w.people[w.playerId].money, money);
+  assert.match(w.log.at(-1).text, /record could not be updated/);
+});
+
+test('a narrator that still answers in JSON is read correctly', async () => {
+  const w = newGame();
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }),
+    narrator: say('{"prose": "Rain hits the glass.", "changes": []}'),
+  });
+  await playTurn(w, 'I listen', { ask });
+  assert.equal(w.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'Rain hits the glass.');
+});
+
+test('a failed narration keeps the dice for the resend', async () => {
+  const w = newGame();
+  let n = 0;
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: true, skill: 'Lockpicking', difficulty: 15, duration: 'short', kind: 'other' }),
+    narrator: () => (++n === 1 ? { ok: false, kind: 'blocked', message: 'blocked' } : say('Done.')),
+  });
+  const first = await playTurn(w, 'pick it', { ask, rng: seq(d20(2)) });
+  assert.equal(first.ok, false);
+  assert.equal(w.turn, 0, 'nothing changed');
+  const second = await playTurn(w, 'pick it', { ask, pending: first.pending, rng: seq(d20(20)) });
+  assert.equal(second.ok, true);
+  assert.equal(second.roll.die, 2, 'same roll as before');
+  assert.equal(calls.filter((c) => c.role === 'referee').length, 1, 'referee not asked again');
+});
+
+test('cancelling while the record is written changes nothing', async () => {
+  const w = newGame();
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }),
+    narrator: say('Hi.'),
+    clerk: { ok: false, kind: 'aborted', message: 'Request cancelled.' },
+  });
+  const r = await playTurn(w, 'hello', { ask });
+  assert.equal(r.ok, false);
+  assert.equal(w.turn, 0);
+});
+
+test('rewrite is canon: no referee, no roll, relaxed item sources', async () => {
+  const w = newGame();
+  const { ask, calls } = fakeAI({
+    narrator: say('She laughs and hands you a key.'),
+    clerk: record({ changes: [{ op: 'new_item', name: 'Brass key', size: 'tiny', tags: ['key'], to: 'player' }] }),
+  });
+  const r = await playTurn(w, 'Mirela laughs and hands me a key', { ask, rewrite: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls.map((c) => c.role), ['narrator', 'clerk']);
+  assert.ok(!r.roll);
+  assert.ok(Object.values(w.items).some((i) => i.name === 'Brass key' && !i.gone));
+});
+
+test('reply length and the end-of-request reminder reach the narrator', async () => {
+  const { narratorSystem } = await import('../js/game/ai.js');
+  assert.match(narratorSystem('short'), /60–150 words/);
+  assert.match(narratorSystem(), /100–220 words/);
+  const w = newGame();
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }),
+    narrator: say('Hi.'),
+  });
+  await playTurn(w, 'hello', { ask, length: 'short' });
+  const nar = calls.find((c) => c.role === 'narrator').req;
+  assert.match(nar.system, /60–150 words/);
+  assert.ok(nar.messages[0].text.trimEnd().endsWith('Reply with the story text only.'));
+  assert.match(nar.messages[0].text, /Write NO words, speech, thoughts/);
+});
+
 test('auto mode: after a switch the scene stays on the home PC for a few turns', async () => {
   const { PC_STICKY_TURNS } = await import('../js/game/turn.js');
   const w = newGame();
-  const prefs = [];
   let first = true;
-  const ask = async (req) => {
-    prefs.push(req.preferPc);
-    if (req.system.startsWith('You are the referee')) return { ok: true, data: { possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }, auto: true, via: 'gemini' };
-    const switched = first;
-    first = false;
-    return { ok: true, data: { prose: 'Scene.', changes: [] }, auto: true, via: 'pc', switched };
-  };
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'talk' }, { auto: true, via: 'gemini' }),
+    narrator: () => { const switched = first; first = false; return say('Scene.', { auto: true, via: 'pc', switched }); },
+    clerk: record({ changes: [] }, { auto: true, via: 'pc' }),
+  });
   await playTurn(w, 'one', { ask });
   assert.equal(w.pcUntilTurn, 1 + PC_STICKY_TURNS);
-  assert.equal(w.log.at(-1).via, 'pc-switched');
+  assert.equal(w.log.find((e) => e.kind === 'gm').via, 'pc-switched');
+  calls.length = 0;
   await playTurn(w, 'two', { ask });
-  assert.deepEqual(prefs.slice(2), [true, true]);
-  assert.equal(w.log.at(-1).via, 'pc');
+  assert.ok(calls.every((c) => c.req.preferPc === true));
+  assert.equal(w.log.filter((e) => e.kind === 'gm').at(-1).via, 'pc');
 });

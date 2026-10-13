@@ -152,6 +152,11 @@ export function buildPacket(world, { kind } = {}) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
       absent.map((x) => `[${x.id}] ${x.fixed.name} — ${x.fixed.sex}, ${x.fixed.pronouns}${x.life.role ? ', ' + x.life.role : ''}${x.dead ? ', DEAD' : ''}`).join('\n'));
   }
+  const deals = (world.deals || []).filter((d) => d.status === 'open');
+  if (deals.length) {
+    parts.push('OPEN DEALS AND PROMISES (what was really agreed; keep to these terms):\n' + deals.map((d) =>
+      `[${d.id}] with ${d.personId ? `[${d.personId}] ` : ''}${d.withName || 'someone'} (made ${d.made}${d.due ? `, due ${d.due}` : ''}): ${d.terms}${d.notes.length ? ' — ' + d.notes.join('; ') : ''}`).join('\n'));
+  }
   if (world.summary) parts.push('STORY SO FAR:\n' + world.summary);
   const recent = recentTurns(world);
   if (recent) parts.push('LAST FEW TURNS:\n' + recent);

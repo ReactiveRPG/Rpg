@@ -46,8 +46,10 @@ export function formatDateTime(world, seconds = world.clock) {
 /** Short date for history entries, e.g. "Mar 4, 1247". */
 export function shortDate(world, seconds = world.clock) {
   const p = dateParts(world, seconds);
-  const months = validNames(world.premise.monthNames, 12) || DEFAULT_MONTHS;
-  return `${months[p.month - 1].slice(0, 3)} ${p.day}, ${p.year}`;
+  const custom = validNames(world.premise.monthNames, 12);
+  // Real month names shorten well ("Oct"); invented ones are kept whole.
+  const month = custom ? custom[p.month - 1] : DEFAULT_MONTHS[p.month - 1].slice(0, 3);
+  return `${month} ${p.day}, ${p.year}`;
 }
 
 function validNames(list, n) {
