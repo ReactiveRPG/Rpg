@@ -219,6 +219,9 @@ try {
   await page.waitForSelector('text=Turn 2:', { state: 'detached' });
 
   await btn('Console').click();
+  await page.waitForSelector('table.sheet >> text=narrator');
+  await page.screenshot({ path: `${process.env.SHOTS || '.'}/12a-requests.png` });
+  await page.getByRole('button', { name: /^Rejected/ }).click();
   await page.waitForSelector('text=fixed fact');
   await shot('12-console');
   await page.click('[aria-label=Close]');

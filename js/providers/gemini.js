@@ -209,7 +209,8 @@ export function createGeminiProvider({ getKey, fetchFn = (...a) => fetch(...a) }
           const loose = { ...req, json: true, system: `${req.system || ''}\n\nReply with JSON only, shaped like this schema:\n${JSON.stringify(compactSchema(req.json))}` };
           r = await post(req.model, buildBody(loose, threshold), limit.signal);
         }
-        return { ...interpretResponse(r.status, r.body, req), status: r.status };
+        // Token counts and the stop reason are kept for the Console's request log.
+        return { ...interpretResponse(r.status, r.body, req), status: r.status, usage: r.body?.usageMetadata, finishReason: r.body?.candidates?.[0]?.finishReason || r.body?.promptFeedback?.blockReason };
       } catch (err) {
         if (limit.timedOut()) return fail('timeout', 'Gemini took too long to answer. Nothing in your game changed. Resend to try again.', { retryable: true });
         if (err && err.name === 'AbortError') return fail('aborted', 'Request cancelled.');

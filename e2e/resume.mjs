@@ -19,6 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let delay = 0;          // ms to hold the next narrator / world reply
 let failNext = false;   // drop narrator requests while set (as if the app was put away)
 let refereeCalls = 0;
+let liteBusy = false;    // the game-master model answers 503 to the referee
 let narrations = 0;
 
 async function fakeGemini(route) {
@@ -36,6 +37,8 @@ async function fakeGemini(route) {
     return route.fulfill(reply({ backstory: 'You ran salt.', attributes: { strength: 1, agility: 2, toughness: 1, wits: 1, charm: 0, nerve: 1 }, skills: [{ name: 'Lockpicking', level: 3 }], money: 40, gear: [{ name: 'Wool trousers', size: 'medium', tags: ['pants'], slot: 'worn' }], ally: { name: 'Tomas', sex: 'male', pronouns: 'he/him', age: 58, looks: 'Grey.', role: 'captain', why: 'Friend.' }, enemy: { name: 'Mirela', sex: 'female', pronouns: 'she/her', age: 35, looks: 'Tall.', role: 'officer', why: 'Grudge.' } }));
   }
   if (sys.startsWith('You are the referee')) {
+    if (liteBusy && url.includes('flash-lite')) { await sleep(1500); return route.fulfill({ status: 503, json: { error: { message: 'The model is overloaded.' } } }); }
+    if (liteBusy) await sleep(2000);   // the stand-in model takes a moment, so the note can be seen
     refereeCalls++;
     return route.fulfill(reply({ possible: true, needsCheck: true, skill: 'Lockpicking', attribute: 'agility', difficulty: 12, duration: 'short', kind: 'other' }));
   }
@@ -139,6 +142,15 @@ try {
   if (await page.locator('.msg.player').count() !== turnsBefore) throw new Error('cancelled turn left in the story');
   await btn('Send').waitFor();
   delay = 0;
+
+  // 5b. The game-master model is overloaded: the referee is asked of the other model, dice kept.
+  liteBusy = true;
+  await page.fill('.action-bar textarea', 'I pick the cellar lock.');
+  await btn('Send').click();
+  await page.waitForSelector('text=is not answering; asking Gemini 3.8 Flash');
+  await page.waitForSelector('.msg.roll >> text=Lockpicking: rolled');
+  await page.waitForFunction(() => /Narration \d+\.\s*$/.test(document.querySelector('.log').innerText.trim()));
+  liteBusy = false;
 
   // 6. A fault in the game's own code: shown plainly, the turn rolled back, never stuck.
   await page.evaluate(() => new Promise((resolve, reject) => {

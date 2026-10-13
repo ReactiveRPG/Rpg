@@ -162,3 +162,6 @@ code { font-size: 0.85em; word-break: break-word; }
 .msg.gm .footnote { font-family: var(--ui); font-size: 0.75em; color: var(--muted); margin: 0.2em 0 0; }
 
 .list-btn.danger { color: var(--bad); }
+
+table.sheet.compact { font-size: 0.78em; }
+table.sheet.compact th, table.sheet.compact td { padding: 0.35em 0.3em; white-space: nowrap; }

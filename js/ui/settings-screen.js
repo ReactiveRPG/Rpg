@@ -18,9 +18,14 @@ export async function openSettings({ onClose } = {}) {
   } }, 'Show');
   const keyStatus = h('p.hint');
 
-  const modelList = h('datalist#model-list');
-  const gmModel = h('input', { value: s.gmModel, list: 'model-list', autocapitalize: 'off', spellcheck: false });
-  const worldModel = h('input', { value: s.worldModel, list: 'model-list', autocapitalize: 'off', spellcheck: false });
+  // Model choice: a real list once "Check key" has fetched the models this key can use
+  // (phone browsers do not reliably show suggestion dropdowns), otherwise a text box.
+  const modelList = h('span');
+  const modelField = (value, ids) => (ids && ids.length
+    ? h('select', [...new Set([value, ...ids].filter(Boolean))].map((id) => h('option', { value: id, selected: id === value }, id)))
+    : h('input', { value, autocapitalize: 'off', spellcheck: false }));
+  let gmModel = modelField(s.gmModel, s.geminiModels);
+  let worldModel = modelField(s.worldModel, s.geminiModels);
   const gmLimit = h('input', { type: 'number', min: 1, value: s.gmDailyLimit });
   const worldLimit = h('input', { type: 'number', min: 1, value: s.worldDailyLimit });
 
@@ -55,7 +60,9 @@ export async function openSettings({ onClose } = {}) {
     const res = await narrator.listModels();
     if (!res.ok) { keyStatus.textContent = res.message; keyStatus.className = 'hint bad'; return; }
     const ids = res.models.map((m) => m.id);
-    modelList.replaceChildren(...res.models.map((m) => h('option', { value: m.id }, m.name)));
+    // Text models only; image, speech and embedding models are no use here.
+    const textIds = ids.filter((id) => !/(image|tts|audio|embedding|vision|live|native)/.test(id));
+    await saveSettings({ geminiModels: textIds });
     const patch = {};
     if (!ids.includes(gmModel.value.trim())) {
       const pick = pickModel(ids, 'gm');
@@ -66,6 +73,12 @@ export async function openSettings({ onClose } = {}) {
       if (pick) { worldModel.value = pick; patch.worldModel = pick; }
     }
     if (Object.keys(patch).length) await saveSettings(patch);
+    const newGm = modelField(gmModel.value.trim(), textIds);
+    const newWorld = modelField(worldModel.value.trim(), textIds);
+    gmModel.replaceWith(newGm);
+    worldModel.replaceWith(newWorld);
+    gmModel = newGm;
+    worldModel = newWorld;
     keyStatus.className = 'hint good';
     keyStatus.textContent = `Key works. ${ids.length} models available.` +
       (Object.keys(patch).length ? ' Model names were updated to ones your key can use.' : '');
@@ -167,9 +180,9 @@ export async function openSettings({ onClose } = {}) {
         h('label', 'Game-master daily limit', gmLimit),
         h('label', 'World-building daily limit', worldLimit),
         modelList,
-        h('p.hint', 'Tap "Check key" above to fill in the list of models your key can use.'),
+        h('p.hint', 'Tap "Check key" above to turn these into lists of the models your key can use. If the game-master model is busy, the game asks the world-building model instead, then your home PC if it is set up.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 25'));
+    h('p.hint.center', 'Living World · stage 1 · build 26'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

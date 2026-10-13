@@ -113,7 +113,7 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
           res = await post(body);
           parsed = await res.json().catch(() => null);
         }
-        return { ...interpretChat(res.status, parsed, req), status: res.status };
+        return { ...interpretChat(res.status, parsed, req), status: res.status, usage: parsed?.usage, finishReason: parsed?.choices?.[0]?.finish_reason };
       } catch (err) {
         if (limit.timedOut()) return fail('timeout', 'Your PC took too long to answer. Nothing in your game changed. Resend to try again.', { retryable: true });
         if (err && err.name === 'AbortError') return fail('aborted', 'Request cancelled.');

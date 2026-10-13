@@ -71,7 +71,8 @@ export async function renderPlay(root, ctx) {
     if (e.kind === 'player') return h('div.msg.player', e.rewrite ? '✎ ' + e.text : e.text);
     if (e.kind === 'gm') {
       const note = e.via === 'pc-switched' ? 'Written on your home PC: Gemini declined this part.'
-        : e.via === 'pc' ? 'Written on your home PC while this scene continues.' : null;
+        : e.via === 'pc' ? 'Written on your home PC while this scene continues.'
+        : e.via === 'pc-rescued' ? 'Written on your home PC: Gemini was busy.' : null;
       return h('div.msg.gm', prose(e.text), note ? h('p.footnote', note) : null);
     }
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
@@ -169,6 +170,7 @@ export async function renderPlay(root, ctx) {
             setBusy(true, 'The narrator is writing…');
           }
           if (stage === 'clerk') setBusy(true, 'Updating the record…');
+          if (stage === 'status') setBusy(true, info);
         },
       });
     } catch (err) {

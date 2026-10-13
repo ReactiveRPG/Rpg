@@ -100,7 +100,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc, signal });
+    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc, signal, onNote: (m) => onStage('status', null, m) });
     if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
@@ -119,7 +119,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll, rewrite ? null : { action, ruling, roll, seconds, refereeRaw });
-  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc, signal });
+  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc, signal, onNote: (m) => onStage('status', null, m) });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = proseFrom(nar);
@@ -130,7 +130,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   // The record-keeper reads the new narration and lists what changed.
   onStage('clerk', roll);
-  const clerk = await ask({ ...clerkRequest(world, packet, actionText, rulingBlock, prose), preferPc, signal });
+  const clerk = await ask({ ...clerkRequest(world, packet, actionText, rulingBlock, prose), preferPc, signal, onNote: (m) => onStage('status', null, m) });
   if (!clerk.ok && clerk.kind === 'aborted') return { ok: false, error: clerk, stage: 'clerk', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   // From here on the turn is accepted.
@@ -147,7 +147,8 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   const switched = nar.switched || (ref && ref.switched) || clerk.switched;
   if (switched) world.pcUntilTurn = t + PC_STICKY_TURNS;
-  const via = nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
+  const via = nar.via === 'pc' && nar.rescued ? 'pc-rescued'
+    : nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
   world.log.push({ turn: t, kind: 'gm', text: prose, via });
   if (recordFailed) world.log.push({ turn: t, kind: 'system', text: `The record could not be updated this turn (${clerk.message || 'no reply'}). If money, items or people are now wrong, fix them in Inventory or Here, or Undo and resend.` });
 

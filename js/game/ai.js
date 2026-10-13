@@ -51,7 +51,13 @@ export function refereeRequest(world, packet, action) {
     messages: [{ role: 'user', text: `${packet}\n\nPLAYER'S ACTION: ${action}` }],
     json: refereeSchema(world),
     temperature: 0.2,
-    maxTokens: 4000,
+    // The ruling is a few short fields. A small limit means a reply stuck padding
+    // itself out stops in seconds; a referee that does not answer in 30 seconds
+    // is asked of another model rather than holding up the turn.
+    maxTokens: 1500,
+    label: 'referee',
+    timeoutMs: 30000,
+    retries: 0,
   };
 }
 
@@ -99,6 +105,8 @@ export function narratorRequest(world, packet, action, ruling, { length = 'mediu
     messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\n${FINAL_REMINDER}` }],
     temperature: 0.95,
     maxTokens: 4000,
+    label: 'narrator',
+    retries: 1,
   };
 }
 
@@ -165,6 +173,9 @@ export function clerkRequest(world, packet, action, ruling, prose) {
     json: true,
     temperature: 0.1,
     maxTokens: 3000,
+    label: 'record',
+    timeoutMs: 45000,
+    retries: 1,
   };
 }
 
@@ -206,6 +217,7 @@ export function premiseRequest(description) {
     system: `You design settings for a single-player text roleplaying game. Build a grounded, specific, playable world from the player's description, with consistent details. ${TONE}\n${FIXED_RULES}`,
     messages: [{ role: 'user', text: `The player wants to play in this world:\n\n${description}\n\nCreate the world premise. Keep everything consistent with the description. Prices must make sense against each other.` }],
     json: PREMISE_SCHEMA,
+    label: 'world',
     temperature: 1,
     maxTokens: 16000,
   };
@@ -244,6 +256,7 @@ export function characterRequest(world, ch) {
     system: `You create player characters for a text roleplaying game, fitting the world premise. The player's choices are fixed facts: never change the name, sex, age or looks they gave. ${TONE}\n${FIXED_RULES}`,
     messages: [{ role: 'user', text: `WORLD PREMISE:\n${JSON.stringify(world.premise)}\n\nTHE PLAYER'S CHARACTER:\nName: ${ch.name}\nSex: ${ch.sex} (${ch.pronouns})\nAge: ${ch.age}\nLooks: ${ch.looks}\nBackground: ${ch.background}\n\nSkills available: ${skills}.\nAttributes are modifiers from -1 to 3 and should add up to about 5.\nAdd a backstory, attributes, starting skills, starting money, starting gear (including worn clothing so they have pockets), one ally and one enemy.` }],
     json: CHARACTER_SCHEMA,
+    label: 'character',
     temperature: 1,
     maxTokens: 12000,
   };
@@ -260,6 +273,7 @@ export function suggestRequest(world, partial) {
     system: `You suggest player characters for a text roleplaying game. Keep anything the player already filled in exactly as given and only fill the blanks. The character is an adult. ${FIXED_RULES}`,
     messages: [{ role: 'user', text: `WORLD: ${world.premise.title}. ${world.premise.setting}\n\nFilled in so far (keep these): ${JSON.stringify(partial)}\n\nSuggest the rest.` }],
     json: SUGGEST_SCHEMA,
+    label: 'suggest',
     temperature: 1.1,
     maxTokens: 2000,
   };
@@ -272,6 +286,7 @@ export function summaryRequest(world, previousSummary, turnsText) {
     job: 'world',
     system: 'You keep the running summary of a text roleplaying game. Write plainly, in past tense, third person about the player character. Keep names exact. Keep it under 300 words. Keep facts that matter later: promises, debts, enemies made, where things were left, who knows what.',
     messages: [{ role: 'user', text: `SUMMARY SO FAR:\n${previousSummary || '(none yet)'}\n\nNEW EVENTS TO FOLD IN:\n${turnsText}\n\nWrite the updated summary.` }],
+    label: 'summary',
     temperature: 0.4,
     maxTokens: 3000,
   };

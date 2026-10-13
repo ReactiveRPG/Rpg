@@ -123,3 +123,60 @@ test('a stalled request is given up after its time limit, and can be cancelled',
   const c = await p.generate({ model: 'm', messages: [{ role: 'user', text: 'hi' }], signal: ctrl.signal, timeoutMs: 5000 });
   assert.equal(c.kind, 'aborted');
 });
+
+test('a busy game-master model hands over to the other Gemini model, then the home PC', async () => {
+  const realFetch = globalThis.fetch;
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => realTimeout(fn, ms > 1000 ? 0 : ms);
+  const calls = [];
+  const notes = [];
+  const net = ({ lite, big, pc }) => {
+    globalThis.fetch = async (url) => {
+      if (url.includes('generativelanguage')) {
+        const model = url.match(/models\/([^:]+):/)[1];
+        calls.push(model);
+        const mode = model === 'lite' ? lite : big;
+        if (mode === 'busy') return { status: 503, json: async () => ({ error: { message: 'The model is overloaded.' } }) };
+        return { status: 200, json: async () => okBody };
+      }
+      calls.push('pc');
+      if (pc === 'down') throw new TypeError('Failed to fetch');
+      return { status: 200, json: async () => ({ choices: [{ message: { content: 'From the PC.' }, finish_reason: 'stop' }] }) };
+    };
+  };
+  try {
+    await saveSettings({ provider: 'gemini', geminiKey: 'k', gmModel: 'lite', worldModel: 'big', pcUrl: 'https://pc.ts.net' });
+
+    net({ lite: 'busy', big: 'ok', pc: 'down' });
+    let r = await ask({ messages: [{ role: 'user', text: 'hi' }], label: 'referee', retries: 0, onNote: (m) => notes.push(m) });
+    assert.equal(r.ok, true);
+    assert.equal(r.model, 'big');
+    assert.deepEqual(calls, ['lite', 'big']);
+    assert.match(notes[0], /lite is not answering; asking big/);
+    const { niceModel } = await import('../js/providers/index.js');
+    assert.equal(niceModel('gemini-3.5-flash-lite'), 'Gemini 3.5 Flash-Lite');
+    assert.equal(niceModel('gemini-3.8-flash'), 'Gemini 3.8 Flash');
+
+    calls.length = 0;
+    net({ lite: 'busy', big: 'busy', pc: 'up' });
+    r = await ask({ messages: [{ role: 'user', text: 'hi' }], retries: 0 });
+    assert.equal(r.ok, true);
+    assert.equal(r.via, 'pc');
+    assert.equal(r.rescued, true);
+    assert.deepEqual(calls, ['lite', 'big', 'pc']);
+
+    calls.length = 0;
+    net({ lite: 'busy', big: 'busy', pc: 'down' });
+    r = await ask({ messages: [{ role: 'user', text: 'hi' }], retries: 0 });
+    assert.equal(r.ok, false);
+    assert.match(r.message, /Google's servers are busy[\s\S]*both Gemini models tried[\s\S]*home PC could not take over/);
+
+    const { getRequestLog } = await import('../js/providers/index.js');
+    const log = await getRequestLog();
+    assert.ok(log.some((e) => e.label === 'referee' && e.model === 'lite' && e.result === 'server'));
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.setTimeout = realTimeout;
+    await saveSettings({ provider: 'gemini', pcUrl: '' });
+  }
+});
