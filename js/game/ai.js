@@ -4,6 +4,7 @@ import { NARRATOR_RULES, TONE, FIXED_RULES } from '../prompts.js';
 import { compactSchema } from '../providers/gemini.js';
 import { ATTRIBUTES, ACTION_KINDS, DURATIONS, skillTable } from './rules.js';
 import { SIZES, SLOTS, INSIDE } from './inventory.js';
+import { dateParts, formatTime, partOfDay } from './clock.js';
 
 const S = (description, extra = {}) => ({ type: 'STRING', description, ...(extra.enum ? { format: 'enum' } : {}), ...extra });
 const I = (description) => ({ type: 'INTEGER', description });
@@ -14,9 +15,9 @@ const O = (properties, required = []) => ({ type: 'OBJECT', properties, required
 
 // ---------- Referee ----------
 
-export function refereeSchema(world) {
+export function refereeSchema(world, { autoLength = false } = {}) {
   const skills = Object.keys(skillTable(world));
-  return O({
+  const schema = O({
     possible: B('Can the character attempt this at all with what they have, where they are, right now?'),
     reason: S('If not possible: why, in one plain sentence. Otherwise empty.'),
     needsCheck: B('True only if the outcome is uncertain AND it matters. Talking, walking, looking around normally need no check.'),
@@ -28,9 +29,21 @@ export function refereeSchema(world) {
     kind: S('What sort of action this is.', { enum: ACTION_KINDS }),
     note: S('One short line for the narrator: what is at stake, or what a cost could be.'),
   }, ['possible', 'needsCheck', 'duration', 'kind']);
+  if (autoLength) {
+    schema.properties.length = S('How long the story reply to this action should be.', { enum: Object.keys(REPLY_LENGTHS) });
+    schema.required.push('length');
+  }
+  return schema;
 }
 
-export function refereeSystem(world) {
+/** How the referee picks a reply length when Settings say Auto. */
+const LENGTH_GUIDE = `- length: how much story this action deserves.
+  shortest: routine actions (walking somewhere known, buying something simple, a quick question, waiting, small talk).
+  short: most ordinary moments and quick fights.
+  medium: important conversations, tense moments, arriving somewhere new.
+  long: big moments only (a major reveal, the end of a long fight, a scene the player has clearly been building up to).`;
+
+export function refereeSystem(world, { autoLength = false } = {}) {
   const skills = Object.entries(skillTable(world)).map(([k, v]) => `${k} (${v.attribute})`).join(', ');
   return `You are the referee of a text roleplaying game. You do not narrate. You return data only.
 Judge the player's typed action. It is an attempt, never a fact: the player cannot declare outcomes, items they do not have, or other people's reactions.
@@ -40,18 +53,18 @@ Judge the player's typed action. It is an attempt, never a fact: the player cann
 - needsCheck: true only when success is uncertain and failure would matter. Ordinary talk, movement and looking need no check. Persuading, lying, sneaking, picking locks, fighting, spotting something hidden usually do.
 - Durations: instant (a glance, a one-word answer), moment (~10 s: one line of dialogue, drawing a weapon), short (1–5 min: searching a desk), task (15–30 min: a meal, bandaging), long (1–3 h: a stakeout, crossing a district), extended (half a day or more: a day's travel, a full sleep).
 - Waiting until something happens is ONE action. Choose a duration long enough for the situation to change.
-Skills and their attributes: ${skills}.
+Skills and their attributes: ${skills}.${autoLength ? '\n' + LENGTH_GUIDE : ''}
 ${TONE}
 ${FIXED_RULES}`;
 }
 
-export function refereeRequest(world, packet, action) {
+export function refereeRequest(world, packet, action, { autoLength = false } = {}) {
   return {
     job: 'gm',
     // Asked as plain JSON with the fields described in words, not Gemini's strict
     // answer form: that mode stalled on Flash-Lite while ordinary requests worked.
     // The code checks and cleans every ruling anyway (normaliseRuling).
-    system: `${refereeSystem(world)}\n\nReply with JSON only, exactly these fields:\n${JSON.stringify(compactSchema(refereeSchema(world)))}`,
+    system: `${refereeSystem(world, { autoLength })}\n\nReply with JSON only, exactly these fields:\n${JSON.stringify(compactSchema(refereeSchema(world, { autoLength })))}`,
     messages: [{ role: 'user', text: `${packet}\n\nPLAYER'S ACTION: ${action}` }],
     json: true,
     temperature: 0.2,
@@ -69,6 +82,7 @@ export function refereeRequest(world, packet, action) {
 
 /** Target length of the narration, chosen in Settings. Shorter replies arrive faster. */
 export const REPLY_LENGTHS = {
+  shortest: '30–70 words: one or two short paragraphs, what happens and what is in front of the player now, then stop',
   short: '60–150 words: a tight beat, then stop',
   medium: '100–220 words',
   long: '200–400 words',
@@ -95,6 +109,7 @@ You are given a scene packet with every fact the game holds, then the player's a
  * than a long system prompt.
  */
 export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
+- Never write the bracketed codes from the packet (like [p12] or [i40]) in the story. Use names only.
 - The player controls their character completely. Write NO words, speech, thoughts, decisions or new actions for the player character. If the player typed words for their character to say, you may repeat those exact words; never invent any.
 - Show only the result of what the player typed, and how everyone else reacts.
 - Positions: start from CURRENT POSITIONS in the packet. The player's new action replaces whatever it obviously replaces (standing someone up ends kneeling; a hand doing something new has let go of what it held). Handle such obvious knock-on effects sensibly. Anything the new action does not touch stays as it was.
@@ -102,11 +117,22 @@ export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
 - End the reply on other people or the scene, never on the player character.
 - Reply with the story text only.`;
 
-export function narratorRequest(world, packet, action, ruling, { length = 'medium' } = {}) {
+/**
+ * The time of day, said plainly right before the narrator writes, so it does not
+ * call an evening "morning". `seconds` is how long the action takes, if known.
+ */
+export function timeNote(world, seconds) {
+  const at = (t) => { const d = dateParts(world, t); return `${formatTime(d.hour, d.minute)} (${partOfDay(d.hour)})`; };
+  const start = at(world.clock);
+  const end = seconds ? at(world.clock + seconds) : null;
+  return `TIME: it is ${start} as this begins${end && end !== start ? `, and about ${end} when it ends` : ''}. Light, darkness, meals and what people are doing must fit that time. Never call it morning, afternoon, evening or night unless that is what the clock says.`;
+}
+
+export function narratorRequest(world, packet, action, ruling, { length = 'medium', time = '' } = {}) {
   return {
     job: 'gm',
     system: narratorSystem(length),
-    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\n${FINAL_REMINDER}` }],
+    messages: [{ role: 'user', text: `${packet}\n\n${action}\n\n${ruling}\n\n${time ? time + '\n\n' : ''}${FINAL_REMINDER}` }],
     temperature: 0.95,
     maxTokens: 4000,
     label: 'narrator',
@@ -117,13 +143,27 @@ export function narratorRequest(world, packet, action, ruling, { length = 'mediu
 /** The story text from a narrator reply, even if the model wrapped it in JSON out of habit. */
 export function proseFrom(res) {
   if (!res) return '';
-  if (res.data && typeof res.data.prose === 'string') return res.data.prose.trim();
+  if (res.data && typeof res.data.prose === 'string') return stripCodes(res.data.prose);
   const text = String(res.text || '').trim();
   if (text.startsWith('{') || text.startsWith('```')) {
     const m = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    try { const j = JSON.parse(m); if (j && typeof j.prose === 'string') return j.prose.trim(); } catch { /* not JSON after all */ }
+    try { const j = JSON.parse(m); if (j && typeof j.prose === 'string') return stripCodes(j.prose); } catch { /* not JSON after all */ }
   }
-  return text;
+  return stripCodes(text);
+}
+
+/**
+ * Removes the packet's reference codes ("[p29]", "(i28)") that a narrator
+ * sometimes copies into the story. People, places, items and deals use
+ * p, l, i and d followed by a number.
+ */
+export function stripCodes(text) {
+  return String(text || '')
+    .replace(/[\[(]\s*[plid]\d+\s*[\])][ \t]?/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.;:!?])/g, '$1')
+    .replace(/^[ \t]+/gm, '')
+    .trim();
 }
 
 // ---------- Record-keeper (bookkeeping) ----------

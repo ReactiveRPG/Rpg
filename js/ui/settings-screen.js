@@ -101,7 +101,7 @@ export async function openSettings({ onClose } = {}) {
   const pcModelList = h('datalist#pc-model-list');
   const pcModel = h('input', { value: s.pcModel, list: 'pc-model-list', placeholder: 'Tap Check connection', autocapitalize: 'off', spellcheck: false });
   const pcKey = h('input', { type: 'password', value: s.pcKey, placeholder: 'Leave blank unless you set one', autocomplete: 'off', autocapitalize: 'off', spellcheck: false });
-  const pcStatus = h('p.hint');
+  const pcStatus = h('p.hint', { style: { whiteSpace: 'pre-line' } });
   const pcBox = h('div', { style: { display: s.provider === 'gemini' ? 'none' : '' } },
     h('label', 'PC address', pcUrl),
     h('label', 'Model', pcModel),
@@ -182,7 +182,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to turn these into lists of the models your key can use. If the game-master model is busy, the game asks the world-building model instead, then your home PC if it is set up.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 28'));
+    h('p.hint.center', 'Living World · stage 1 · build 29'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

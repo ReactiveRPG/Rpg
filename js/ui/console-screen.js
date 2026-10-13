@@ -50,7 +50,7 @@ export function openConsole(ctx) {
             h('td.num', h('small', `${r.tokensIn ?? '?'}/${r.tokensOut ?? '?'}${r.thinking ? ` +${r.thinking} thinking` : ''}`))))))))
         : h('p.hint', 'No requests recorded yet.');
     } else if (tab === 'error') {
-      const text = lastError ? JSON.stringify({ ...lastError, at: new Date(lastError.at).toISOString(), build: 28 }, null, 2) : '';
+      const text = lastError ? JSON.stringify({ ...lastError, at: new Date(lastError.at).toISOString(), build: 29 }, null, 2) : '';
       content = lastError ? h('div', h('button', { type: 'button', onclick: () => copy(text) }, 'Copy'), h('pre.raw', text)) : h('p.hint', 'No errors recorded.');
     } else if (tab === 'last') {
       const text = JSON.stringify(w.debug || {}, null, 2);

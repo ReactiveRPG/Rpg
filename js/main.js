@@ -32,7 +32,8 @@ function gameSettings() {
     box.addEventListener('change', () => saveSettings({ [key]: box.checked }));
     return [h('label.switch', label, box), hint ? h('p.hint', hint) : null];
   };
-  const lengthButtons = [['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']].map(([id, label]) => h('button.seg', {
+  const LENGTHS = [['shortest', 'Shortest'], ['short', 'Short'], ['medium', 'Medium'], ['long', 'Long'], ['auto', 'Auto']];
+  const lengthButtons = LENGTHS.map(([id, label]) => h('button.seg', {
     type: 'button',
     onclick: async (e) => {
       const tapped = e.currentTarget;
@@ -40,12 +41,12 @@ function gameSettings() {
       await saveSettings({ replyLength: id });
     },
   }, label));
-  loadSettings().then((s) => lengthButtons.forEach((b, i) => b.classList.toggle('on', ['short', 'medium', 'long'][i] === s.replyLength)));
+  loadSettings().then((s) => lengthButtons.forEach((b, i) => b.classList.toggle('on', LENGTHS[i][0] === s.replyLength)));
   return h('section',
     h('h3', 'Game'),
     h('p', 'Reply length'),
-    h('div.segmented', lengthButtons),
-    h('p.hint', 'Shorter replies arrive faster, especially on your home PC.'),
+    h('div.segmented.five', lengthButtons),
+    h('p.hint', 'Shorter replies arrive faster, especially on your home PC. Auto lets the referee pick for each turn: short for routine actions, longer for big moments.'),
     sw('showDice', 'Show dice rolls', 'Shows each check, e.g. "Lockpicking: rolled 14 + 3 = 17 vs 15 — success".'),
     sw('undoEnabled', 'Undo button', 'Turn off for a no-takebacks game.'));
 }

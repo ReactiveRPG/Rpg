@@ -54,3 +54,18 @@ test('lists loaded models', async () => {
   const r = await p.listModels();
   assert.deepEqual(r.models.map((m) => m.id), ['rocinante-12b']);
 });
+
+test('check connection says which link is broken', async () => {
+  const make = (fetchFn) => createOpenAICompatProvider({ getBase: () => 'pc.ts.net', fetchFn });
+  const blocked = await make(async (url, opts) => { if (opts.mode === 'no-cors') return {}; throw new TypeError('Failed to fetch'); }).listModels();
+  assert.equal(blocked.kind, 'blocked');
+  assert.match(blocked.message, /CORS/);
+  const away = await make(async () => { throw new TypeError('Failed to fetch'); }).listModels();
+  assert.equal(away.kind, 'network');
+  assert.match(away.message, /Tailscale is switched on on this phone/);
+  const down = await make(async () => ({ status: 502, json: async () => null })).listModels();
+  assert.equal(down.kind, 'pc_app');
+  assert.match(down.message, /LM Studio is not answering/);
+  const ok = await make(async () => ({ status: 200, json: async () => ({ data: [{ id: 'rocinante' }, { id: 'nomic-embed' }] }) })).listModels();
+  assert.deepEqual(ok.models.map((m) => m.id), ['rocinante']);
+});

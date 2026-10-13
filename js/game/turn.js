@@ -6,11 +6,11 @@
 
 import { ask as defaultAsk } from '../providers/index.js';
 import { buildPacket } from './packet.js';
-import { refereeRequest, narratorRequest, clerkRequest, proseFrom, summaryRequest } from './ai.js';
+import { refereeRequest, narratorRequest, clerkRequest, proseFrom, summaryRequest, timeNote, stripCodes, REPLY_LENGTHS } from './ai.js';
 import { applyChanges, applyPresent } from './changes.js';
 import { check, clamp, OUTCOME_LABEL } from './dice.js';
 import { durationSeconds, describeSpan } from './clock.js';
-import { pushSnapshot, player } from './state.js';
+import { pushSnapshot, player, undoTurns } from './state.js';
 import { skillTable, ATTRIBUTES, ACTION_KINDS, DURATIONS, DIFFICULTY_MIN, DIFFICULTY_MAX } from './rules.js';
 
 const MAX_REJECTED_LOG = 300;
@@ -39,6 +39,7 @@ export function normaliseRuling(world, data) {
     minutes: Math.max(0, Number(d.minutes) || 0),
     kind: ACTION_KINDS.includes(d.kind) ? d.kind : 'other',
     note: String(d.note || '').slice(0, 300),
+    length: REPLY_LENGTHS[d.length] ? d.length : null,
   };
 }
 
@@ -100,7 +101,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc, signal, onNote: (m) => onStage('status', null, m) });
+    ref = await ask({ ...refereeRequest(world, buildPacket(world), action, { autoLength: length === 'auto' }), preferPc, signal, onNote: (m) => onStage('status', null, m) });
     if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
@@ -118,8 +119,10 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     actionText = `PLAYER'S ACTION (an attempt, not a fact): "${action}"`;
     rulingBlock = rulingText(ruling, roll, seconds);
   }
+  // Auto length: the referee's pick; rewrites (no referee) and older rulings get medium.
+  const lengthUsed = length === 'auto' ? (ruling.length || 'medium') : length;
   onStage('narrator', roll, rewrite ? null : { action, ruling, roll, seconds, refereeRaw });
-  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc, signal, onNote: (m) => onStage('status', null, m) });
+  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length: lengthUsed, time: timeNote(world, seconds) }), preferPc, signal, onNote: (m) => onStage('status', null, m) });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = proseFrom(nar);
@@ -168,10 +171,12 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   world.recent.push({ turn: t, kind: ruling.kind, action, outcome: prose.replace(/\s+/g, ' ').slice(0, 300) });
   if (world.recent.length > MAX_RECENT) world.recent.splice(0, world.recent.length - MAX_RECENT);
-  world.debug = { referee: refereeRaw, ruling, roll, narrator: prose, record: clerk.ok ? clerk.data : { failed: clerk.message }, applied, rejected, models: { narrator: nar.model, record: clerk.model } };
+  // What the record-keeper was told, so the reply can be edited and recorded again.
+  world.lastTurn = { turn: t, action: actionText, ruling: rulingBlock, kind: ruling.kind, trusted: rewrite || undefined };
+  world.debug = { referee: refereeRaw, ruling, roll, length: lengthUsed, narrator: prose, record: clerk.ok ? clerk.data : { failed: clerk.message }, applied, rejected, models: { narrator: nar.model, record: clerk.model } };
   world.updatedAt = Date.now();
 
-  return { ok: true, ruling, roll, applied, rejected, seconds, recordFailed };
+  return { ok: true, ruling, roll, applied, rejected, seconds, recordFailed, length: lengthUsed };
 }
 
 /**
@@ -219,12 +224,86 @@ export async function redoRecord(world, entry, { ask = defaultAsk, signal } = {}
   return { ok: true, applied, rejected };
 }
 
+/** What the record-keeper needs to know about the latest turn: saved with it, or rebuilt for older saves. */
+function turnInfo(world) {
+  if (world.lastTurn && world.lastTurn.turn === world.turn) return world.lastTurn;
+  const mine = world.log.filter((e) => e.turn === world.turn);
+  const p = mine.find((e) => e.kind === 'player');
+  if (!p) return null;
+  const r = mine.find((e) => e.kind === 'roll');
+  return {
+    turn: world.turn,
+    action: p.rewrite ? `CANON — the player has rewritten what happens next. This text is true:\n"${p.text}"` : `PLAYER'S ACTION (an attempt, not a fact): "${p.text}"`,
+    ruling: r ? `Outcome: ${r.text}.` : 'The narration below shows the outcome.',
+    kind: undefined,
+    trusted: p.rewrite || undefined,
+  };
+}
+
+/**
+ * The player edited the latest story reply.
+ *   updateRecord false: only the wording changes; the facts stay as they are.
+ *   updateRecord true:  the turn's changes are thrown away and the record-keeper
+ *                       reads the edited version instead, from the world as it
+ *                       was before the turn. Dice, time and the action stay.
+ * Resolves to { ok: true, world } (a new world object when the record was redone)
+ * or { ok: false, error }. The world passed in is never left half-changed.
+ */
+export async function editLastReply(world, newText, { updateRecord = true, ask = defaultAsk, signal } = {}) {
+  const t = world.turn;
+  const gm = [...world.log].reverse().find((e) => e.turn === t && e.kind === 'gm');
+  const text = stripCodes(newText);
+  if (!gm) return { ok: false, error: { kind: 'stale', message: 'There is no story reply to edit.' } };
+  if (!text) return { ok: false, error: { kind: 'empty', message: 'The reply cannot be empty.' } };
+  const recentText = text.replace(/\s+/g, ' ').slice(0, 300);
+
+  if (!updateRecord) {
+    gm.text = text;
+    gm.edited = true;
+    const r = world.recent.at(-1);
+    if (r && r.turn === t) r.outcome = recentText;
+    world.updatedAt = Date.now();
+    return { ok: true, world };
+  }
+
+  const info = turnInfo(world);
+  const next = t > 0 ? undoTurns(world, 1) : null;
+  if (!info || !next) return { ok: false, error: { kind: 'stale', message: 'This turn cannot be recorded again. Untick "Update the record too" to change the wording only.' } };
+  const packet = buildPacket(next, { kind: info.kind });
+  const clerk = await ask({ ...clerkRequest(next, packet, info.action, info.ruling, text), signal, preferPc: (world.pcUntilTurn || 0) > t });
+  if (!clerk.ok) return { ok: false, error: clerk };
+
+  // Replay the turn on the world as it was before it, with the edited story.
+  pushSnapshot(next);
+  next.turn = t;
+  for (const e of world.log) {
+    // Notes about fixes made by hand go too: those fixes are undone with the turn's record.
+    if (e.turn !== t || e.kind === 'system') continue;
+    next.log.push(e === gm ? { ...e, text, edited: true } : { ...e });
+  }
+  next.rejected = world.rejected.filter((r) => r.turn !== t);
+  const { applied, rejected, recordFailed } = keepRecord(next, clerk, { trusted: !!info.trusted });
+  if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
+  for (const r of rejected) next.rejected.push({ turn: t, change: r.change, reason: r.reason });
+  if (next.rejected.length > MAX_REJECTED_LOG) next.rejected.splice(0, next.rejected.length - MAX_REJECTED_LOG);
+  next.clock = world.clock;
+  for (const id of next.present) if (next.people[id]) next.people[id].lastSeen = next.clock;
+  next.recent = world.recent.map((r) => (r.turn === t ? { ...r, outcome: recentText } : r));
+  next.summary = world.summary;
+  next.summaryUpTo = world.summaryUpTo;
+  next.pcUntilTurn = world.pcUntilTurn;
+  next.lastTurn = { ...info, turn: t };
+  next.debug = { ...(world.debug || {}), narrator: text, record: clerk.data, applied, rejected, edited: true };
+  next.updatedAt = Date.now();
+  return { ok: true, world: next, applied, rejected };
+}
+
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */
 export async function playOpening(world, { ask = defaultAsk } = {}) {
   const packet = buildPacket(world);
   const action = 'OPENING SCENE: the game begins.';
   const ruling = 'Introduce the player character at the starting place and time: what they see, hear and smell, who is around, and the situation they are in. Bring in the ally or enemy only if they would plausibly be here. Do not act or speak for the character. End on the scene, not a question. Name anyone who matters.';
-  const nar = await ask(narratorRequest(world, packet, action, ruling));
+  const nar = await ask(narratorRequest(world, packet, action, ruling, { time: timeNote(world) }));
   if (!nar.ok) return { ok: false, error: nar };
   const prose = proseFrom(nar);
   if (!prose) return { ok: false, error: { kind: 'empty', message: 'The game master sent back an empty scene. Try again.' } };

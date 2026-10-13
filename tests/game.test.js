@@ -5,7 +5,8 @@ import { worldFromPremise, addCharacter, normaliseChoices } from '../js/game/cre
 import { canPlace, findPlace, carriedItems, carriedWeight, dependentSlotsInUse } from '../js/game/inventory.js';
 import { makeItem, undoTurns, pushSnapshot } from '../js/game/state.js';
 import { applyChanges } from '../js/game/changes.js';
-import { playTurn, normaliseRuling, redoRecord } from '../js/game/turn.js';
+import { playTurn, normaliseRuling, redoRecord, editLastReply } from '../js/game/turn.js';
+import { stripCodes } from '../js/game/ai.js';
 import { formatDateTime, durationSeconds } from '../js/game/clock.js';
 import { buildPacket } from '../js/game/packet.js';
 
@@ -465,4 +466,78 @@ test('"Update the record" re-runs the record-keeper for the latest turn only', a
   // An older turn's note cannot be redone.
   const stale = { turn: w.turn - 1, kind: 'system', recordRetry: note.recordRetry };
   assert.equal((await redoRecord(w, stale, { ask: fixed.ask })).ok, false);
+});
+
+test('reference codes are removed from the story', () => {
+  assert.equal(stripCodes('You look at [p29] Big Jim.'), 'You look at Big Jim.');
+  assert.equal(stripCodes('In your [i28] jacket pocket, (i4) a coin.'), 'In your jacket pocket, a coin.');
+  assert.equal(stripCodes('[p3] Rosie laughs.\n\n[l2] The Rat is loud.'), 'Rosie laughs.\n\nThe Rat is loud.');
+  assert.equal(stripCodes('He paid [d5] the debt [p12].'), 'He paid the debt.');
+  assert.equal(stripCodes('Room [12] and (pistol) stay.'), 'Room [12] and (pistol) stay.');
+});
+
+test('auto length: the referee picks the length and the narrator is told the time', async () => {
+  const w = newGame();
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'other', length: 'shortest' }),
+    narrator: say('You nod to [p2] Tomas.'),
+    clerk: record({ changes: [] }),
+  });
+  const r = await playTurn(w, 'I nod', { ask, length: 'auto' });
+  assert.equal(r.length, 'shortest');
+  assert.match(calls[0].req.system, /"length"/);
+  assert.match(calls[0].req.system, /shortest: routine actions/);
+  assert.match(calls[1].req.system, /30–70 words/);
+  assert.match(calls[1].req.messages[0].text, /TIME: it is \d+:\d\d [ap]m \((night|early morning|morning|midday|afternoon|evening)\)/);
+  assert.equal(w.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'You nod to Tomas.');
+  // A fixed length does not ask the referee for one; a missing pick falls back to medium.
+  const fixed = fakeAI({ referee: record({ possible: true, duration: 'moment', kind: 'other' }), narrator: say('Ok.'), clerk: record({ changes: [] }) });
+  await playTurn(w, 'I wait', { ask: fixed.ask, length: 'short' });
+  assert.doesNotMatch(fixed.calls[0].req.system, /"length"/);
+  const missing = fakeAI({ referee: record({ possible: true, duration: 'moment', kind: 'other' }), narrator: say('Ok.'), clerk: record({ changes: [] }) });
+  assert.equal((await playTurn(w, 'I wait', { ask: missing.ask, length: 'auto' })).length, 'medium');
+});
+
+test('editing the last reply: wording only, or recorded again from before the turn', async () => {
+  const w = newGame();
+  const money = w.people[w.playerId].money;
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'trade' }),
+    narrator: say('You pay Bren ten.'),
+    clerk: () => record({ changes: [{ op: 'pay', from: w.playerId, amount: 10 }] }),
+  });
+  await playTurn(w, 'I pay Bren', { ask });
+  assert.equal(w.people[w.playerId].money, money - 10);
+  const clock = w.clock;
+
+  // Wording only: same world, text changed, money untouched.
+  const a = await editLastReply(w, 'You pay Bren ten, grudgingly.', { updateRecord: false });
+  assert.equal(a.ok, true);
+  assert.equal(a.world, w);
+  assert.equal(w.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'You pay Bren ten, grudgingly.');
+  assert.equal(w.people[w.playerId].money, money - 10);
+
+  // Recorded again: the old payment is undone and the edited version is recorded.
+  const fixed = fakeAI({ clerk: record({ changes: [{ op: 'pay', from: w.playerId, amount: 4 }] }) });
+  const b = await editLastReply(w, 'You pay Bren four.', { ask: fixed.ask });
+  assert.equal(b.ok, true);
+  assert.match(fixed.calls[0].req.messages[0].text, /You pay Bren four\./);
+  assert.match(fixed.calls[0].req.messages[0].text, /I pay Bren/);
+  const nw = b.world;
+  assert.equal(nw.people[nw.playerId].money, money - 4);
+  assert.equal(nw.turn, 1);
+  assert.equal(nw.clock, clock);
+  assert.equal(nw.log.filter((e) => e.turn === 1 && e.kind === 'gm').length, 1);
+  assert.equal(nw.log.find((e) => e.kind === 'gm' && e.turn === 1).edited, true);
+  // Undo still goes back to before the turn.
+  const back = undoTurns(nw, 1);
+  assert.equal(back.turn, 0);
+  assert.equal(back.people[back.playerId].money, money);
+
+  // A failed record-keeper leaves everything as it was.
+  const bad = fakeAI({ clerk: { ok: false, kind: 'network', message: 'cut off' } });
+  const c = await editLastReply(nw, 'You pay Bren nothing.', { ask: bad.ask });
+  assert.equal(c.ok, false);
+  assert.equal(nw.people[nw.playerId].money, money - 4);
+  assert.equal(nw.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'You pay Bren four.');
 });

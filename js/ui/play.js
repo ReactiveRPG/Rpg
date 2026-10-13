@@ -3,7 +3,8 @@
 
 import { h, prose, toast, hiddenTimes, whenVisible, INTERRUPTED } from './dom.js';
 import { loadSettings } from '../settings.js';
-import { playTurn, summarise, redoRecord } from '../game/turn.js';
+import { playTurn, summarise, redoRecord, editLastReply } from '../game/turn.js';
+import { stripCodes } from '../game/ai.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
 import { saveWorld, loadWorld, savePendingTurn, loadPendingTurn, clearPendingTurn } from '../game/saves.js';
 import { db } from '../db.js';
@@ -24,7 +25,6 @@ export async function renderPlay(root, ctx) {
   const settings = await loadSettings();
   let busy = false;
   let pending = null;      // dice kept from a failed narration
-  let redo = null;         // the world before the last Undo, to put it back
   // What a turn in progress shows, kept so the log can be redrawn mid-turn.
   const inFlight = { action: null, roll: null, waiting: null, clock: null };
 
@@ -73,7 +73,7 @@ export async function renderPlay(root, ctx) {
       const note = e.via === 'pc-switched' ? 'Written on your home PC: Gemini declined this part.'
         : e.via === 'pc' ? 'Written on your home PC while this scene continues.'
         : e.via === 'pc-rescued' ? 'Written on your home PC: Gemini was busy.' : null;
-      return h('div.msg.gm', prose(e.text), note ? h('p.footnote', note) : null);
+      return h('div.msg.gm', prose(stripCodes(e.text)), note ? h('p.footnote', note) : null, e.edited ? h('p.footnote', 'Edited by you.') : null);
     }
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
     if (e.kind === 'system') {
@@ -128,22 +128,28 @@ export async function renderPlay(root, ctx) {
     }
   }
 
-  function showProblem(res, action, { rewrite = false } = {}) {
+  function showProblem(res, action, { rewrite = false, restoreOnFail = null } = {}) {
     const box = h('div.problem',
       h('p', res.error.message || 'Something went wrong.'),
       h('div.row',
-        h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true }); } }, 'Resend'),
-        h('button', { type: 'button', onclick: () => { box.remove(); pending = null; input.value = action; input.focus(); } }, 'Rephrase')));
+        h('button', { type: 'button', onclick: () => { box.remove(); submit(action, { rewrite, resend: true, restoreOnFail }); } }, 'Resend'),
+        h('button', { type: 'button', onclick: () => { box.remove(); pending = null; input.value = action; input.focus(); } }, 'Rephrase'),
+        restoreOnFail ? h('button', { type: 'button', onclick: async () => {
+          box.remove();
+          ctx.setWorld(restoreOnFail);
+          await saveWorld(restoreOnFail);
+          refresh();
+          toast('The original turn is back');
+        } }, 'Keep the original') : null));
     log.append(box);
     log.scrollTop = log.scrollHeight;
   }
 
-  async function submit(text, { rewrite = false, resend = false, retries = 0 } = {}) {
+  async function submit(text, { rewrite = false, resend = false, retries = 0, restoreOnFail = null } = {}) {
     if (busy) return;
     const action = (text ?? input.value).trim();
     if (!action) return;
     if (!resend) pending = null;
-    redo = null;
     input.value = '';
     log.querySelector('.undo-panel')?.remove();
     log.querySelectorAll('.problem').forEach((n) => n.remove());
@@ -203,7 +209,14 @@ export async function renderPlay(root, ctx) {
       // Cancelled by the player: nothing happened; the action goes back in the box.
       setBusy(false);
       await clearPendingTurn();
-      input.value = action;
+      if (restoreOnFail) {
+        // A rewrite from Undo was cancelled: the original turn comes back.
+        ctx.setWorld(restoreOnFail);
+        await saveWorld(restoreOnFail);
+        refresh();
+      } else {
+        input.value = action;
+      }
       toast('Cancelled. Nothing in your game changed.');
       return;
     }
@@ -214,12 +227,12 @@ export async function renderPlay(root, ctx) {
         setBusy(true, 'Picking up where you left off…');
         await whenVisible();
         setBusy(false);
-        return submit(action, { rewrite, resend: true, retries: retries + 1 });
+        return submit(action, { rewrite, resend: true, retries: retries + 1, restoreOnFail });
       }
       setBusy(false);
       await clearPendingTurn();
       if (res.error.kind === 'crash') refresh();
-      showProblem(res, action, { rewrite });
+      showProblem(res, action, { rewrite, restoreOnFail });
       return;
     }
     setBusy(false);
@@ -279,56 +292,114 @@ export async function renderPlay(root, ctx) {
     }
   }
 
-  async function startUndo() {
+  // ----- Undo: nothing is removed until the player picks what to do -----
+  function startUndo() {
     if (busy) return;
-    const back = undoTurns(ctx.world, 1);
-    if (!back) { toast('Nothing to undo'); return; }
-    redo = ctx.world;
-    ctx.setWorld(back);
-    await saveWorld(back);
-    refresh();
-    showUndoPanel();
-  }
+    const w = ctx.world;
+    if (!w.turn || !(w.snapshots || []).length) { toast('Nothing to undo'); return; }
+    log.querySelector('.undo-panel')?.remove();
+    log.querySelectorAll('.problem').forEach((n) => n.remove());
+    const panel = h('div.notice.undo-panel');
+    const close = () => panel.remove();
+    const back = h('button', { type: 'button', onclick: () => menu() }, 'Back');
+    const show = (...nodes) => { panel.replaceChildren(...nodes); log.scrollTop = log.scrollHeight; };
 
-  function showUndoPanel() {
-    const box = h('textarea', { rows: 2, placeholder: 'Empty: just remove it · "back 2": remove more · or type what should have happened instead' });
-    const panel = h('div.notice.undo-panel',
-      h('p', 'Turn removed. What next?'),
-      box,
-      h('div.row',
-        h('button.primary', { type: 'button', onclick: () => finishUndo(box.value) }, 'Done'),
-        h('button', { type: 'button', onclick: () => putBack() }, 'Put it back')));
+    function menu() {
+      show(h('p', 'Change the last turn:'),
+        h('div.undo-choices',
+          h('button', { type: 'button', onclick: editReply }, 'Edit the reply'),
+          h('button', { type: 'button', onclick: rewrite }, 'Rewrite what happens'),
+          h('button', { type: 'button', onclick: takeBack }, 'Take back the turn'),
+          h('button', { type: 'button', onclick: close }, 'Cancel')));
+    }
+
+    function editReply() {
+      const gm = [...ctx.world.log].reverse().find((e) => e.turn === ctx.world.turn && e.kind === 'gm');
+      if (!gm) { toast('There is no story reply to edit'); return; }
+      const box = h('textarea', { rows: 10 });
+      box.value = stripCodes(gm.text);
+      const tick = h('input', { type: 'checkbox', checked: true });
+      const save = h('button.primary', { type: 'button', onclick: async () => {
+        const text = box.value.trim();
+        if (!text) { toast('The reply cannot be empty'); return; }
+        if (text === stripCodes(gm.text)) { close(); return; }
+        save.disabled = true;
+        const w = ctx.world;
+        const ctrl = new AbortController();
+        if (tick.checked) { cancelCtrl = ctrl; setBusy(true, 'Updating the record…'); }
+        let res;
+        try {
+          res = await editLastReply(w, text, { updateRecord: tick.checked, signal: ctrl.signal });
+        } catch (err) {
+          console.error(err);
+          res = { ok: false, error: { kind: 'crash', message: String(err && err.message || err) } };
+        }
+        if (tick.checked) { cancelCtrl = null; setBusy(false); }
+        save.disabled = false;
+        if (!res.ok) {
+          toast(ctrl.signal.aborted ? 'Cancelled. Nothing changed.' : `Could not save: ${res.error.message || res.error.kind}`, 6000);
+          return;
+        }
+        if (ctx.world === w) ctx.setWorld(res.world);
+        await saveWorld(res.world);
+        refresh();
+        toast(tick.checked ? 'Reply edited and the record updated' : 'Reply edited');
+      } }, 'Save');
+      const handFixes = ctx.world.log.some((e) => e.turn === ctx.world.turn && e.kind === 'system' && !e.recordRetry);
+      show(h('p', 'Edit the last reply:'), box,
+        h('label.switch', 'Update the record too', tick),
+        h('p.hint', 'Re-reads your edited version so money, items and people match it. Untick for wording-only fixes.'),
+        handFixes ? h('p.hint', 'Fixes you made by hand since this turn (in Inventory, Here or Deals) are undone when the record is updated; redo them afterwards if still needed.') : null,
+        h('div.row', save, back));
+      box.focus();
+    }
+
+    function rewrite() {
+      const box = h('textarea', { rows: 3, placeholder: 'What should have happened instead?' });
+      show(h('p', 'The narrator rewrites the last turn from what you type. It happens exactly as written, with no dice roll.'), box,
+        h('div.row',
+          h('button.primary', { type: 'button', onclick: async () => {
+            const text = box.value.trim();
+            if (!text) { toast('Type what should have happened'); return; }
+            const original = ctx.world;
+            const before = undoTurns(original, 1);
+            if (!before) { toast('Nothing to undo'); return; }
+            close();
+            ctx.setWorld(before);
+            await saveWorld(before);
+            refresh();
+            submit(text, { rewrite: true, restoreOnFail: original });
+          } }, 'Send'),
+          back));
+      box.focus();
+    }
+
+    function takeBack() {
+      const max = (ctx.world.snapshots || []).length;
+      const count = h('input', { type: 'number', min: 1, max, value: 1, inputmode: 'numeric', style: { width: '5em' } });
+      show(h('p', 'Remove the last turn completely. Your action goes back in the box so you can change it and resend.'),
+        h('label', `How many turns to take back (up to ${max})`, count),
+        h('div.row',
+          h('button.primary', { type: 'button', onclick: async () => {
+            const w = ctx.world;
+            const n = Math.min(max, Math.max(1, parseInt(count.value, 10) || 1));
+            const before = undoTurns(w, n);
+            if (!before) { toast('Nothing to undo'); return; }
+            const first = w.log.find((e) => e.turn === before.turn + 1 && e.kind === 'player');
+            close();
+            ctx.setWorld(before);
+            await saveWorld(before);
+            pending = null;
+            refresh();
+            if (first) { input.value = first.text; input.focus(); }
+            toast(`${n} turn${n === 1 ? '' : 's'} taken back`);
+          } }, 'Take back'),
+          back));
+    }
+
+    menu();
     log.append(panel);
     log.scrollTop = log.scrollHeight;
-    box.focus();
-  }
-
-  async function putBack() {
-    if (!redo) return;
-    ctx.setWorld(redo);
-    redo = null;
-    await saveWorld(ctx.world);
-    refresh();
-  }
-
-  async function finishUndo(text) {
-    const t = text.trim();
-    log.querySelector('.undo-panel')?.remove();
-    const m = t.match(/^(?:back|undo)?\s*(\d+)\s*(?:turns?)?$/i);
-    if (!t) { redo = null; input.focus(); return; }
-    if (m) {
-      const more = Math.max(0, parseInt(m[1], 10) - 1);
-      if (more > 0) {
-        const back = undoTurns(ctx.world, more);
-        if (back) { ctx.setWorld(back); await saveWorld(back); }
-      }
-      redo = null;
-      refresh();
-      toast(`${parseInt(m[1], 10)} turn${m[1] === '1' ? '' : 's'} removed`);
-      return;
-    }
-    redo = null;
-    submit(t, { rewrite: true });
   }
 
   root.replaceChildren(h('div.play', header, menu, log, bar));

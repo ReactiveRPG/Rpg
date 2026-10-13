@@ -16,7 +16,10 @@ A single-player text RPG where an AI game master narrates any world you describe
   Also:
   - person and place cards with fixed facts
   - inventory with carry slots, size and weight
-  - Undo and Rewrite, going back up to 20 turns
+  - Undo opens a panel and removes nothing until you choose: edit the last reply (optionally re-running the record-keeper on the edited text), rewrite what happens, or take back up to 20 turns
+  - reply length: Shortest, Short, Medium, Long, or Auto (the referee picks per turn)
+  - the narrator is told the exact time of day every turn; reference codes like [p29] are removed from the story
+  - Check connection says which link to the home PC is broken (phone, PC, LM Studio, CORS)
   - automatic saves, plus Export and Import backups
   - a developer console
   - a record-keeper step after every reply: a second, quick request reads the new story and records what changed (money, items, people, who is present, positions, deals), so the narrator only writes prose

@@ -92,7 +92,7 @@ function fakeGemini(route) {
     ] });
   }
   narrations++;
-  return narrate({ prose: `Turn ${narrations}: Bren pours you an ale and takes two pennies.`, changes: [
+  return narrate({ prose: `Turn ${narrations}: Bren pours you an [i99] ale and takes two pennies.`, changes: [
     { op: 'new_item', name: 'Mug of ale', size: 'medium', weight: 0.6, value: 2, tags: ['drink'], to: 'player', source: 'bought from Bren' },
     { op: 'pay', from: 'player', to: 'Bren', amount: 2, reason: 'ale' },
     { op: 'person_update', personId: 'Bren', field: 'sex', newValue: 'female' },
@@ -203,20 +203,45 @@ try {
   await page.waitForSelector('text=No one you know.');
   await page.click('[aria-label=Close]');
 
-  // Undo with rewrite.
+  // Reference codes the narrator copied are not shown.
+  if ((await page.locator('.log').innerText()).includes('[i99]')) throw new Error('reference code shown in the story');
+
+  // Undo opens choices and removes nothing until one is picked.
+  const turnsBeforeUndo = await page.locator('.msg.player').count();
   await btn('Undo').click();
-  await page.waitForSelector('text=Turn removed');
+  await page.waitForSelector('text=Change the last turn');
   await shot('10-undo');
+  await btn('Cancel').click();
+  if (await page.locator('.msg.player').count() !== turnsBeforeUndo) throw new Error('Undo removed a turn before a choice');
+
+  // Edit the reply, updating the record.
+  await btn('Undo').click();
+  await btn('Edit the reply').click();
+  await page.fill('.undo-panel textarea', 'Bren pours you a small beer instead.');
+  await shot('10b-edit');
+  await btn('Save').click();
+  await page.waitForSelector('text=Reply edited and the record updated');
+  await page.waitForSelector('.msg.gm >> text=small beer instead');
+  await page.waitForSelector('text=Edited by you.');
+  if (await page.locator('.msg.player').count() !== turnsBeforeUndo) throw new Error('editing changed the number of turns');
+
+  // Rewrite what happens.
+  await btn('Undo').click();
+  await btn('Rewrite what happens').click();
   await page.fill('.undo-panel textarea', 'Bren laughs and gives me the cellar key.');
-  await btn('Done').click();
+  await btn('Send').first().click();
   await page.waitForSelector('text=brass key');
   await shot('11-rewrite');
 
-  // Back 2 turns.
+  // Take back 2 turns: the first one's action goes back in the box.
   await btn('Undo').click();
-  await page.fill('.undo-panel textarea', 'back 2');
-  await btn('Done').click();
+  await btn('Take back the turn').click();
+  await page.fill('.undo-panel input[type=number]', '2');
+  await btn('Take back').click();
+  await page.waitForSelector('text=2 turns taken back');
   await page.waitForSelector('text=Turn 2:', { state: 'detached' });
+  if (!(await page.inputValue('.action-bar textarea'))) throw new Error('action not put back after taking back turns');
+  await page.fill('.action-bar textarea', '');
 
   await btn('Console').click();
   await page.waitForSelector('table.sheet >> text=narrator');
@@ -228,8 +253,11 @@ try {
 
   // Auto mode: Gemini blocks, the home PC takes over, with a footnote.
   await page.click('[aria-label=Settings]');
-  await btn('Auto').click();
-  if (!(await btn('Auto').getAttribute('class')).includes('on')) throw new Error('Auto button not highlighted');
+  await btn('Auto').first().click();
+  if (!(await btn('Auto').first().getAttribute('class')).includes('on')) throw new Error('Auto button not highlighted');
+  await btn('Shortest').click();
+  if (!(await btn('Shortest').getAttribute('class')).includes('on')) throw new Error('Shortest button not highlighted');
+  await shot('12b-lengths');
   await btn('Short').click();
   if (!(await btn('Short').getAttribute('class')).includes('on')) throw new Error('Short button not highlighted');
   await btn('Large').click();

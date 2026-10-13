@@ -165,3 +165,5 @@ code { font-size: 0.85em; word-break: break-word; }
 
 table.sheet.compact { font-size: 0.78em; }
 table.sheet.compact th, table.sheet.compact td { padding: 0.35em 0.3em; white-space: nowrap; }
+.undo-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; }
+.segmented.five .seg { padding-left: 0.2em; padding-right: 0.2em; font-size: 0.85em; }

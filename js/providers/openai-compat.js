@@ -72,6 +72,31 @@ export function interpretChat(status, body, { json } = {}) {
   return { ok: true, text, truncated };
 }
 
+const LMSTUDIO_DOWN = 'Your PC is reachable, but LM Studio is not answering.\n'
+  + 'Using Chrome Remote Desktop: open LM Studio (called Bionic in the Start menu), then in Settings → Local Model API check that "Local API server" says Running on port 1234.';
+const BLOCKED = 'Your PC answered, but the browser was not allowed to read the reply. Usually this means one of:\n'
+  + '• LM Studio is closed or its server is off (open it with Chrome Remote Desktop and check Settings → Local Model API says Running), or\n'
+  + '• CORS is off in Settings → Local Model API.';
+const UNREACHABLE = 'Could not reach your PC at all. Check, in this order:\n'
+  + '• Tailscale is switched on on this phone.\n'
+  + '• The PC is on and awake: Chrome Remote Desktop should show it as Online. If it shows the Windows sign-in screen, sign in.\n'
+  + '• Tailscale is running on the PC (its icon near the clock).';
+
+/**
+ * Check connection failed before any reply could be read. A browser hides the
+ * reason, so ask again in "no-cors" mode: if that gets through, the PC is
+ * reachable and something there refused the browser; if not, the PC cannot be reached.
+ */
+async function diagnose(base, err, fetchFn = (...a) => fetch(...a)) {
+  if (err && err.name === 'TimeoutError') return fail('network', UNREACHABLE, { detail: String(err) });
+  try {
+    await fetchFn(`${base}/v1/models`, { mode: 'no-cors', signal: AbortSignal.timeout(10000) });
+    return fail('blocked', BLOCKED, { detail: String(err) });
+  } catch {
+    return fail('network', UNREACHABLE, { detail: String(err) });
+  }
+}
+
 export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn = (...a) => fetch(...a) }) {
   const headers = () => {
     const h = { 'Content-Type': 'application/json' };
@@ -123,19 +148,29 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
       }
     },
 
+    /**
+     * Lists the models on the PC. When that fails, works out which link in the
+     * chain is broken (phone → Tailscale → PC → LM Studio) and says what to do.
+     */
     async listModels() {
       const base = cleanBase(getBase());
       if (!base) return fail('no_key', 'Enter your PC\'s address first.');
-      try {
-        const res = await fetchFn(`${base}/v1/models`, { headers: headers(), signal: AbortSignal.timeout(20000) });
-        const body = await res.json().catch(() => null);
-        if (res.status !== 200) return interpretChat(res.status, body, {});
-        const models = (body?.data || []).map((m) => ({ id: m.id, name: m.id }))
-          .filter((m) => !/embed/i.test(m.id));
-        return { ok: true, models };
-      } catch (err) {
-        return { ...unreachable(base), detail: String(err) };
+      if (/^http:/i.test(base) && typeof location !== 'undefined' && location.protocol === 'https:') {
+        return fail('bad_address', 'The PC address must start with https:// (the Tailscale address), not http://.');
       }
+      let res;
+      try {
+        res = await fetchFn(`${base}/v1/models`, { headers: headers(), signal: AbortSignal.timeout(15000) });
+      } catch (err) {
+        return diagnose(base, err, fetchFn);
+      }
+      const body = await res.json().catch(() => null);
+      if (res.status === 502 || res.status === 503 || res.status === 504) return fail('pc_app', LMSTUDIO_DOWN, { status: res.status });
+      if (res.status === 404) return fail('bad_address', 'Something answered at that address, but it is not LM Studio. Check the PC address, and that Tailscale on the PC passes requests to port 1234.', { status: 404 });
+      if (res.status !== 200) return interpretChat(res.status, body, {});
+      const models = (body?.data || []).map((m) => ({ id: m.id, name: m.id }))
+        .filter((m) => !/embed/i.test(m.id));
+      return { ok: true, models };
     },
   };
 }
