@@ -182,7 +182,7 @@ export async function openSettings({ onClose } = {}) {
         modelList,
         h('p.hint', 'Tap "Check key" above to turn these into lists of the models your key can use. If the game-master model is busy, the game asks the world-building model instead, then your home PC if it is set up.'),
         h('button', { type: 'button', onclick: saveModels }, 'Save models and limits'))),
-    h('p.hint.center', 'Living World · stage 1 · build 26'));
+    h('p.hint.center', 'Living World · stage 1 · build 27'));
 
   renderUsage();
   return overlay('Settings', body, { onClose: () => { unsubscribe(); onClose && onClose(); } });

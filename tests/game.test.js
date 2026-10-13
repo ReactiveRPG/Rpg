@@ -417,3 +417,11 @@ test('auto mode: after a switch the scene stays on the home PC for a few turns',
   assert.ok(calls.every((c) => c.req.preferPc === true));
   assert.equal(w.log.filter((e) => e.kind === 'gm').at(-1).via, 'pc');
 });
+
+test('the referee asks for plain JSON with its fields described, not the strict form', async () => {
+  const { refereeRequest } = await import('../js/game/ai.js');
+  const r = refereeRequest(newGame(), 'PACKET', 'I wait');
+  assert.equal(r.json, true);
+  assert.match(r.system, /Reply with JSON only, exactly these fields:[\s\S]*"duration":"instant \| moment/);
+  assert.equal(r.timeoutMs, 30000);
+});

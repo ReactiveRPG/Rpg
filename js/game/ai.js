@@ -1,6 +1,7 @@
 // What the game asks the AI, and the exact shape of the answers it accepts.
 
 import { NARRATOR_RULES, TONE, FIXED_RULES } from '../prompts.js';
+import { compactSchema } from '../providers/gemini.js';
 import { ATTRIBUTES, ACTION_KINDS, DURATIONS, skillTable } from './rules.js';
 import { SIZES, SLOTS, INSIDE } from './inventory.js';
 
@@ -47,9 +48,12 @@ ${FIXED_RULES}`;
 export function refereeRequest(world, packet, action) {
   return {
     job: 'gm',
-    system: refereeSystem(world),
+    // Asked as plain JSON with the fields described in words, not Gemini's strict
+    // answer form: that mode stalled on Flash-Lite while ordinary requests worked.
+    // The code checks and cleans every ruling anyway (normaliseRuling).
+    system: `${refereeSystem(world)}\n\nReply with JSON only, exactly these fields:\n${JSON.stringify(compactSchema(refereeSchema(world)))}`,
     messages: [{ role: 'user', text: `${packet}\n\nPLAYER'S ACTION: ${action}` }],
-    json: refereeSchema(world),
+    json: true,
     temperature: 0.2,
     // The ruling is a few short fields. A small limit means a reply stuck padding
     // itself out stops in seconds; a referee that does not answer in 30 seconds

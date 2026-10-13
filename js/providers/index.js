@@ -141,7 +141,12 @@ export async function ask({ preferPc = false, onNote = () => {}, ...req }) {
     const first = r;
     if (s.worldModel && s.worldModel !== s.gmModel) {
       onNote(`${niceModel(s.gmModel)} is not answering; asking ${niceModel(s.worldModel)}…`);
-      const r2 = await askProvider(narrators.gemini, s, { ...req, model: s.worldModel, retries: 0 });
+      let r2 = await askProvider(narrators.gemini, s, { ...req, model: s.worldModel, retries: 0 });
+      // "Overloaded" (503) often clears within seconds: one more try after a short pause.
+      if (r2.kind === 'server' && !req.signal?.aborted) {
+        await sleep(2500);
+        if (!req.signal?.aborted) r2 = await askProvider(narrators.gemini, s, { ...req, model: s.worldModel, retries: 0 });
+      }
       if (r2.ok || !overloaded(r2)) return { ...r2, auto, fellBack: true };
       r = r2;
     }

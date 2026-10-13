@@ -163,7 +163,7 @@ test('a busy game-master model hands over to the other Gemini model, then the ho
     assert.equal(r.ok, true);
     assert.equal(r.via, 'pc');
     assert.equal(r.rescued, true);
-    assert.deepEqual(calls, ['lite', 'big', 'pc']);
+    assert.deepEqual(calls, ['lite', 'big', 'big', 'pc'], 'an overloaded second model gets one more try');
 
     calls.length = 0;
     net({ lite: 'busy', big: 'busy', pc: 'down' });
