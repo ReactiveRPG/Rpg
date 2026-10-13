@@ -85,7 +85,7 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, length = 'medium', ask = defaultAsk, rng, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, length = 'medium', ask = defaultAsk, rng, signal, onStage = () => {} } = {}) {
   let ruling;
   let roll;
   let seconds;
@@ -100,7 +100,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     ({ ruling, roll, seconds, refereeRaw } = pending);
   } else {
     onStage('referee');
-    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc });
+    ref = await ask({ ...refereeRequest(world, buildPacket(world), action), preferPc, signal });
     if (!ref.ok) return { ok: false, error: ref, stage: 'referee' };
     refereeRaw = ref.data;
     ruling = normaliseRuling(world, ref.data);
@@ -119,7 +119,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     rulingBlock = rulingText(ruling, roll, seconds);
   }
   onStage('narrator', roll, rewrite ? null : { action, ruling, roll, seconds, refereeRaw });
-  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc });
+  const nar = await ask({ ...narratorRequest(world, packet, actionText, rulingBlock, { length }), preferPc, signal });
   if (!nar.ok) return { ok: false, error: nar, stage: 'narrator', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   const prose = String(nar.data.prose || '').trim();

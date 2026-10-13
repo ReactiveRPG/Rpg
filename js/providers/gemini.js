@@ -2,6 +2,8 @@
 // from the phone; the key is sent in a header and never leaves the device
 // any other way.
 
+import { withTimeout } from './timeout.js';
+
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // All four adjustable safety categories are switched off on every request.
@@ -193,23 +195,27 @@ export function createGeminiProvider({ getKey, fetchFn = (...a) => fetch(...a) }
     /** One request. Resolves to { ok, text, data? } or { ok:false, kind, message }. Never throws. */
     async generate(req) {
       if (!getKey()) return fail('no_key', 'No Gemini key yet. Open Settings and paste your key.');
+      const limit = withTimeout(req.signal, req.timeoutMs || 75000);
       try {
-        let r = await post(req.model, buildBody(req, 'OFF'), req.signal);
+        let r = await post(req.model, buildBody(req, 'OFF'), limit.signal);
         // Older models reject the OFF threshold; BLOCK_NONE is the next most open setting.
         let threshold = 'OFF';
         if (r.status === 400 && /threshold/i.test(r.body?.error?.message || '')) {
           threshold = 'BLOCK_NONE';
-          r = await post(req.model, buildBody(req, threshold), req.signal);
+          r = await post(req.model, buildBody(req, threshold), limit.signal);
         }
         // If the model refuses the answer format, ask for plain JSON and describe the shape in words.
         if (r.status === 400 && req.json && req.json !== true && !/api key/i.test(r.body?.error?.message || '')) {
           const loose = { ...req, json: true, system: `${req.system || ''}\n\nReply with JSON only, shaped like this schema:\n${JSON.stringify(compactSchema(req.json))}` };
-          r = await post(req.model, buildBody(loose, threshold), req.signal);
+          r = await post(req.model, buildBody(loose, threshold), limit.signal);
         }
         return { ...interpretResponse(r.status, r.body, req), status: r.status };
       } catch (err) {
+        if (limit.timedOut()) return fail('timeout', 'Gemini took too long to answer. Nothing in your game changed. Resend to try again.', { retryable: true });
         if (err && err.name === 'AbortError') return fail('aborted', 'Request cancelled.');
         return fail('network', 'Could not reach Gemini. Check the phone is online, then resend.', { retryable: true, detail: String(err) });
+      } finally {
+        limit.done();
       }
     },
 
@@ -217,7 +223,7 @@ export function createGeminiProvider({ getKey, fetchFn = (...a) => fetch(...a) }
     async listModels() {
       if (!getKey()) return fail('no_key', 'No Gemini key yet.');
       try {
-        const res = await fetchFn(`${BASE}/models?pageSize=1000`, { headers: { 'x-goog-api-key': getKey() } });
+        const res = await fetchFn(`${BASE}/models?pageSize=1000`, { headers: { 'x-goog-api-key': getKey() }, signal: AbortSignal.timeout(20000) });
         const body = await res.json().catch(() => null);
         if (res.status !== 200) return interpretResponse(res.status, body, {});
         const models = (body.models || [])

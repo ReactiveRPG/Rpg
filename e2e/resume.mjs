@@ -126,6 +126,19 @@ try {
   await page.waitForFunction(() => /Narration \d+\.\s*$/.test(document.querySelector('.log').innerText.trim()) && document.body.innerText.includes('I wait.'));
   if (await page.locator('.msg.player', { hasText: 'I wait.' }).count() !== 1) throw new Error('action duplicated after resume');
 
+  // 5. Cancel while waiting: nothing changes and the action goes back in the box.
+  delay = 20000;
+  const turnsBefore = await page.locator('.msg.player').count();
+  await page.fill('.action-bar textarea', 'I light a cigarette.');
+  await btn('Send').click();
+  await page.waitForSelector('text=The narrator is writing');
+  await btn('Cancel').click();
+  await page.waitForSelector('text=Cancelled. Nothing in your game changed.');
+  if (await page.inputValue('.action-bar textarea') !== 'I light a cigarette.') throw new Error('action not put back after cancel');
+  if (await page.locator('.msg.player').count() !== turnsBefore) throw new Error('cancelled turn left in the story');
+  await btn('Send').waitFor();
+  delay = 0;
+
   console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'resume ok');
 } catch (err) {
   await page.screenshot({ path: `${process.env.SHOTS || '.'}/resume-failure.png` });

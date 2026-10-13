@@ -24,7 +24,7 @@ export async function renderPlay(root, ctx) {
   let pending = null;      // dice kept from a failed narration
   let redo = null;         // the world before the last Undo, to put it back
   // What a turn in progress shows, kept so the log can be redrawn mid-turn.
-  const inFlight = { action: null, roll: null, waiting: null };
+  const inFlight = { action: null, roll: null, waiting: null, clock: null };
 
   const header = h('div.play-head');
   const menu = h('nav.menu-row',
@@ -36,7 +36,8 @@ export async function renderPlay(root, ctx) {
     h('button.chip', { type: 'button', onclick: () => openSettings({ onClose: settingsClosed }), 'aria-label': 'Settings' }, '⚙ Settings'));
   const log = h('div.log');
   const input = h('textarea', { rows: 2, placeholder: 'What do you do?', enterkeyhint: 'send' });
-  const sendBtn = h('button.primary', { type: 'button', onclick: () => submit() }, 'Send');
+  const sendBtn = h('button.primary', { type: 'button', onclick: () => (busy ? cancelTurn() : submit()) }, 'Send');
+  let cancelCtrl = null;   // stops the request in flight
   const undoBtn = h('button', { type: 'button', onclick: () => startUndo() }, 'Undo');
   const bar = h('div.action-bar', undoBtn, input, sendBtn);
   undoBtn.style.display = settings.undoEnabled ? '' : 'none';
@@ -90,10 +91,22 @@ export async function renderPlay(root, ctx) {
 
   function setBusy(on, text) {
     busy = on;
-    sendBtn.disabled = on;
+    // While waiting, Send becomes Cancel.
+    sendBtn.textContent = on ? 'Cancel' : 'Send';
+    sendBtn.classList.toggle('primary', !on);
     undoBtn.disabled = on;
     inFlight.waiting?.remove();
+    clearInterval(inFlight.clock);
     inFlight.waiting = on ? h('div.msg.waiting', text) : null;
+    if (on) {
+      // After a while, count the seconds so a slow reply is not mistaken for a stuck one.
+      const started = Date.now();
+      const el = inFlight.waiting;
+      inFlight.clock = setInterval(() => {
+        const s = Math.round((Date.now() - started) / 1000);
+        if (s >= 10) el.textContent = `${text} ${s}s`;
+      }, 1000);
+    }
     if (on) {
       log.append(inFlight.waiting);
       log.scrollTop = log.scrollHeight;
@@ -130,6 +143,8 @@ export async function renderPlay(root, ctx) {
 
     // Saved before sending, so a turn cut off by leaving the app can be picked up again.
     const w = ctx.world;
+    const ctrl = new AbortController();
+    cancelCtrl = ctrl;
     const hiddenBefore = hiddenTimes();
     const note = (p) => savePendingTurn({ worldId: w.id, baseTurn: w.turn, action, rewrite, pending: p }).catch(() => {});
     await note(resend ? pending : null);
@@ -138,6 +153,7 @@ export async function renderPlay(root, ctx) {
       rewrite,
       pending: resend ? pending : null,
       length: settings.replyLength,
+      signal: ctrl.signal,
       onStage: (stage, roll, info) => {
         if (stage === 'narrator') {
           if (info) { pending = info; note(info); }
@@ -150,6 +166,15 @@ export async function renderPlay(root, ctx) {
       },
     });
 
+    cancelCtrl = null;
+    if (!res.ok && ctrl.signal.aborted) {
+      // Cancelled by the player: nothing happened; the action goes back in the box.
+      setBusy(false);
+      await clearPendingTurn();
+      input.value = action;
+      toast('Cancelled. Nothing in your game changed.');
+      return;
+    }
     if (!res.ok) {
       pending = res.pending || pending;
       // Cut off because the app was in the background: carry on once it is back.
@@ -170,6 +195,10 @@ export async function renderPlay(root, ctx) {
     await clearPendingTurn();
     if (ctx.world === w) refresh();
     backgroundSummary();
+  }
+
+  function cancelTurn() {
+    if (cancelCtrl) cancelCtrl.abort();
   }
 
   /** After the app was closed mid-turn: finish that turn instead of losing it. */

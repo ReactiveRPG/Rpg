@@ -78,7 +78,7 @@ export function whenVisible() {
   });
 }
 /** Failures that leaving the app can cause, and that are worth trying again. */
-export const INTERRUPTED = ['network', 'aborted', 'server', 'empty', 'bad_json'];
+export const INTERRUPTED = ['network', 'aborted', 'timeout', 'server', 'empty', 'bad_json'];
 
 export function toast(message, ms = 3000) {
   const t = h('div.toast', message);

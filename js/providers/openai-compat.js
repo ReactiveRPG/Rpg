@@ -3,6 +3,7 @@
 // Nothing here leaves the player's own devices.
 
 import { salvageNarration } from './gemini.js';
+import { withTimeout } from './timeout.js';
 
 function fail(kind, message, extra = {}) {
   return { ok: false, kind, message, ...extra };
@@ -103,7 +104,9 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
         const schema = req.json === true ? NARRATION_SHAPE : toJsonSchema(req.json);
         body.response_format = { type: 'json_schema', json_schema: { name: 'reply', schema } };
       }
-      const post = (b) => fetchFn(`${base}/v1/chat/completions`, { method: 'POST', headers: headers(), body: JSON.stringify(b), signal: req.signal });
+      // Story replies on an older graphics card can take a while; give up only after several minutes.
+      const limit = withTimeout(req.signal, req.timeoutMs || 240000);
+      const post = (b) => fetchFn(`${base}/v1/chat/completions`, { method: 'POST', headers: headers(), body: JSON.stringify(b), signal: limit.signal });
       try {
         let res = await post(body);
         let parsed = await res.json().catch(() => null);
@@ -116,8 +119,11 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
         }
         return { ...interpretChat(res.status, parsed, req), status: res.status };
       } catch (err) {
+        if (limit.timedOut()) return fail('timeout', 'Your PC took too long to answer. Nothing in your game changed. Resend to try again.', { retryable: true });
         if (err && err.name === 'AbortError') return fail('aborted', 'Request cancelled.');
         return { ...unreachable(base), detail: String(err) };
+      } finally {
+        limit.done();
       }
     },
 
@@ -125,7 +131,7 @@ export function createOpenAICompatProvider({ getBase, getKey = () => '', fetchFn
       const base = cleanBase(getBase());
       if (!base) return fail('no_key', 'Enter your PC\'s address first.');
       try {
-        const res = await fetchFn(`${base}/v1/models`, { headers: headers() });
+        const res = await fetchFn(`${base}/v1/models`, { headers: headers(), signal: AbortSignal.timeout(20000) });
         const body = await res.json().catch(() => null);
         if (res.status !== 200) return interpretChat(res.status, body, {});
         const models = (body?.data || []).map((m) => ({ id: m.id, name: m.id }))

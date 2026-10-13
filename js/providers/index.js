@@ -27,8 +27,11 @@ export async function getNarrator(id) {
 
 const RETRY_DELAYS_MS = [2000, 5000];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** Busy or broken servers (5xx) and dropped connections are worth a quiet retry. */
-const transient = (r) => r.kind === 'server' || r.kind === 'network';
+/** Busy or broken servers (5xx), dropped connections and stalls are worth a quiet retry. */
+const transient = (r) => r.kind === 'server' || r.kind === 'network' || r.kind === 'timeout';
+/** The home PC is off, asleep, or LM Studio's server is not answering: retrying will not help. */
+const pcDown = (r) => r.kind === 'network' || r.kind === 'timeout' || r.status === 502 || r.status === 504;
+const cancelled = () => ({ ok: false, kind: 'aborted', message: 'Request cancelled.' });
 
 /**
  * One request to one provider: retries busy servers, and for Gemini handles
@@ -44,20 +47,23 @@ async function askProvider(narrator, s, { job = 'gm', ...req }) {
     fellBack = true;
   }
 
+  // World-building replies are long; give Gemini a little more time for them.
+  const timeoutMs = req.timeoutMs || (onPc ? undefined : job === 'world' ? 120000 : 75000);
   const attempt = async (m) => {
-    let r = await narrator.generate({ ...req, model: m });
+    let r = await narrator.generate({ ...req, timeoutMs, model: m });
     if (r.status && r.status !== 429) await recordRequest(m);
     for (const [i, delay] of RETRY_DELAYS_MS.entries()) {
-      // An unreachable PC will not answer a few seconds later either.
-      if (!transient(r) || (onPc && r.kind === 'network')) break;
+      // A PC that is off or not serving will not answer a few seconds later either.
+      if (!transient(r) || (onPc && pcDown(r))) break;
       await sleep(delay);
+      if (req.signal?.aborted) return cancelled();
       // The last retry asks for plain JSON with the shape described in words,
       // in case the strict answer format is what the server is choking on.
       const last = i === RETRY_DELAYS_MS.length - 1;
       const loose = last && req.json && req.json !== true
         ? { ...req, json: true, system: `${req.system || ''}\n\nReply with JSON only, shaped like this schema:\n${JSON.stringify(compactSchema(req.json))}` }
         : req;
-      r = await narrator.generate({ ...loose, model: m });
+      r = await narrator.generate({ ...loose, timeoutMs, model: m });
       if (r.status && r.status !== 429) await recordRequest(m);
     }
     return r;
@@ -87,16 +93,16 @@ export async function ask({ preferPc = false, ...req }) {
     return askProvider(narrators[s.provider] || narrators.gemini, s, req);
   }
   const canPc = !!(s.pcUrl || '').trim();
+  // A scene Gemini declined stays on the PC; if the PC is not answering, Gemini takes over.
   if (preferPc && canPc) {
     const r = await askProvider(narrators.pc, s, req);
-    if (r.kind !== 'network') return { ...r, auto: true };
+    if (r.ok || r.kind === 'aborted' || !(pcDown(r) || r.kind === 'server')) return { ...r, auto: true };
   }
   const r = await askProvider(narrators.gemini, s, req);
   if (r.kind === 'blocked' && canPc) {
     const pc = await askProvider(narrators.pc, s, req);
-    if (pc.ok) return { ...pc, auto: true, switched: true };
-    if (pc.kind === 'network') return { ...r, auto: true, message: `${r.message} Your home PC could not be reached to take over.` };
-    return { ...pc, auto: true, switched: true };
+    if (pc.ok || pc.kind === 'aborted') return { ...pc, auto: true, switched: true };
+    return { ...r, auto: true, message: `${r.message} Your home PC could not take over: ${pc.message}` };
   }
   return { ...r, auto: true };
 }
