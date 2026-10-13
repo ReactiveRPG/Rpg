@@ -164,6 +164,9 @@ try {
   await shot('08-item');
   await btn('Mouth').click();
   await page.waitForSelector('td:text-is("Mouth")');
+  await page.click('td:text-is("Hard bread")');
+  await btn('Remove from the game').click();
+  await page.waitForSelector('td:text-is("Hard bread")', { state: 'detached' });
   await page.click('[aria-label=Close]');
 
   await btn('People').click();

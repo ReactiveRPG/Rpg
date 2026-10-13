@@ -68,8 +68,11 @@ export function directlyHeld(world, holderId) {
 /** Every item a person carries, including bag contents. */
 export function carriedItems(world, personId) {
   const out = [];
+  const seen = new Set();
   const walk = (holderId) => {
     for (const it of directlyHeld(world, holderId)) {
+      if (seen.has(it.id)) continue;   // never loop on a damaged save
+      seen.add(it.id);
       out.push(it);
       walk(it.id);
     }

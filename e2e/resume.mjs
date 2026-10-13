@@ -139,6 +139,35 @@ try {
   await btn('Send').waitFor();
   delay = 0;
 
+  // 6. A fault in the game's own code: shown plainly, the turn rolled back, never stuck.
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('living-world');
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction(['kv', 'worlds'], 'readwrite');
+      tx.objectStore('kv').get('currentWorld').onsuccess = (e) => {
+        const id = e.target.result;
+        tx.objectStore('worlds').get(id).onsuccess = (ev) => {
+          const w = ev.target.result;
+          w.places[w.currentPlaceId].connections = null;   // damaged on purpose
+          tx.objectStore('worlds').put(w, id);
+        };
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    };
+  }));
+  await page.reload();
+  await page.waitForSelector('.action-bar textarea');
+  await page.fill('.action-bar textarea', 'I look around.');
+  await btn('Send').click();
+  await page.waitForSelector('text=The game hit an error of its own');
+  await btn('Send').waitFor();
+  await page.getByRole('button', { name: 'Console', exact: true }).click();
+  await btn('Last error').click();
+  await page.waitForSelector('pre.raw >> text=I look around.');
+  await page.click('[aria-label=Close]');
+
   console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'resume ok');
 } catch (err) {
   await page.screenshot({ path: `${process.env.SHOTS || '.'}/resume-failure.png` });

@@ -5,7 +5,8 @@ import { h, prose, toast, hiddenTimes, whenVisible, INTERRUPTED } from './dom.js
 import { loadSettings } from '../settings.js';
 import { playTurn, summarise } from '../game/turn.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
-import { saveWorld, savePendingTurn, loadPendingTurn, clearPendingTurn } from '../game/saves.js';
+import { saveWorld, loadWorld, savePendingTurn, loadPendingTurn, clearPendingTurn } from '../game/saves.js';
+import { db } from '../db.js';
 import { formatDate, formatTime, dateParts } from '../game/clock.js';
 import { carriedWeight, weightLimits } from '../game/inventory.js';
 import { money } from '../game/packet.js';
@@ -149,22 +150,33 @@ export async function renderPlay(root, ctx) {
     const note = (p) => savePendingTurn({ worldId: w.id, baseTurn: w.turn, action, rewrite, pending: p }).catch(() => {});
     await note(resend ? pending : null);
 
-    const res = await playTurn(w, action, {
-      rewrite,
-      pending: resend ? pending : null,
-      length: settings.replyLength,
-      signal: ctrl.signal,
-      onStage: (stage, roll, info) => {
-        if (stage === 'narrator') {
-          if (info) { pending = info; note(info); }
-          if (roll && settings.showDice && !inFlight.roll) {
-            inFlight.roll = h('div.msg.roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`);
-            inFlight.action?.after(inFlight.roll);
+    let res;
+    try {
+      res = await playTurn(w, action, {
+        rewrite,
+        pending: resend ? pending : null,
+        length: settings.replyLength,
+        signal: ctrl.signal,
+        onStage: (stage, roll, info) => {
+          if (stage === 'narrator') {
+            if (info) { pending = info; note(info); }
+            if (roll && settings.showDice && !inFlight.roll) {
+              inFlight.roll = h('div.msg.roll', `${roll.skill || roll.attribute}: rolled ${roll.die}…`);
+              inFlight.action?.after(inFlight.roll);
+            }
+            setBusy(true, 'The narrator is writing…');
           }
-          setBusy(true, 'The narrator is writing…');
-        }
-      },
-    });
+        },
+      });
+    } catch (err) {
+      // A fault in the game's own code must never leave the screen stuck. Put the
+      // world back to its last save, keep the details for the Console, and say so.
+      console.error(err);
+      await db.put('kv', 'lastError', { at: Date.now(), action, message: String(err && err.message || err), stack: String(err && err.stack || '') }).catch(() => {});
+      const saved = await loadWorld(w.id).catch(() => null);
+      if (saved && ctx.world === w) ctx.setWorld(saved);
+      res = { ok: false, error: { kind: 'crash', message: `The game hit an error of its own: "${err && err.message}". Nothing from this turn was kept. Please tap Console → Last error → Copy and send it to Claude.` } };
+    }
 
     cancelCtrl = null;
     if (!res.ok && ctrl.signal.aborted) {
@@ -186,6 +198,7 @@ export async function renderPlay(root, ctx) {
       }
       setBusy(false);
       await clearPendingTurn();
+      if (res.error.kind === 'crash') refresh();
       showProblem(res, action, { rewrite });
       return;
     }

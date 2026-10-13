@@ -6,6 +6,7 @@ import { carriedItems, carriedWeight, weightLimits, slotLabel, hiddenLevel, SEAR
 import { player, currentPlace } from '../game/state.js';
 import { saveWorld } from '../game/saves.js';
 import { money } from '../game/packet.js';
+import { applyChanges } from '../game/changes.js';
 
 const COLUMNS = [
   { key: 'name', label: 'Item', get: (it) => it.name.toLowerCase() },
@@ -112,6 +113,25 @@ function openItem(ctx, it, onDone) {
       it.source ? [h('dt', 'Came from'), h('dd', it.source)] : null),
     h('h3.sub', 'Move to'),
     h('p.hint', 'Moving things around here is free. To hide something while someone watches, type it as an action instead.'),
-    targets.map((t) => h('button.list-btn', { type: 'button', disabled: !t.ok, onclick: () => move(t) }, t.label, t.ok ? null : h('small', t.reason))));
+    targets.map((t) => h('button.list-btn', { type: 'button', disabled: !t.ok, onclick: () => move(t) }, t.label, t.ok ? null : h('small', t.reason))),
+    // Corrections, for when the story and the inventory disagree.
+    h('h3.sub', 'Fix the record'),
+    h('p.hint', 'If the story says this item changed hands or is gone but the game missed it, set it right here.'),
+    w.present.filter((id) => w.people[id] && !w.people[id].dead).map((id) => h('button.list-btn', {
+      type: 'button',
+      onclick: () => correct({ op: 'move_item', itemId: it.id, to: id }, `${it.name}: now with ${w.people[id].fixed.name}.`),
+    }, `Handed over to ${w.people[id].fixed.name}`)),
+    h('button.list-btn.danger', {
+      type: 'button',
+      onclick: () => { if (confirm(`Remove ${it.name} from the game? (It was used up, lost, or should never have been there.)`)) correct({ op: 'use_up_item', itemId: it.id, qty: it.qty, reason: 'removed by the player' }, `${it.name}: removed.`); },
+    }, 'Remove from the game'));
+  async function correct(change, note) {
+    const { rejected } = applyChanges(w, [change], { trusted: true });
+    if (rejected.length) { toast(`Could not do that: ${rejected[0].reason}`, 5000); return; }
+    w.log.push({ turn: w.turn, kind: 'system', text: note });
+    await saveWorld(w);
+    panel.close();
+    onDone();
+  }
   panel = overlay(it.name, body);
 }
