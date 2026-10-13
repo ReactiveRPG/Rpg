@@ -85,7 +85,7 @@ function rulingText(ruling, roll, seconds) {
  *   rewrite: the action is canon text from the Rewrite box: no referee, no roll.
  * Resolves to { ok: true, ... } or { ok: false, error, pending }.
  */
-export async function playTurn(world, action, { rewrite = false, pending = null, length = 'medium', ask = defaultAsk, rng, signal, onStage = () => {} } = {}) {
+export async function playTurn(world, action, { rewrite = false, pending = null, length = 'medium', ask = defaultAsk, rng, signal, onStage = () => {}, retryRecord = async () => false } = {}) {
   let ruling;
   let roll;
   let seconds;
@@ -130,8 +130,15 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
 
   // The record-keeper reads the new narration and lists what changed.
   onStage('clerk', roll);
-  const clerk = await ask({ ...clerkRequest(world, packet, actionText, rulingBlock, prose), preferPc, signal, onNote: (m) => onStage('status', null, m) });
-  if (!clerk.ok && clerk.kind === 'aborted') return { ok: false, error: clerk, stage: 'clerk', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
+  const askClerk = () => ask({ ...clerkRequest(world, packet, actionText, rulingBlock, prose), preferPc, signal, onNote: (m) => onStage('status', null, m) });
+  let clerk = await askClerk();
+  // Cut off by leaving the app: the caller waits until it is back, then the record is asked again.
+  for (let i = 0; i < 2 && !clerk.ok && clerk.kind !== 'aborted' && !signal?.aborted && await retryRecord(clerk); i++) {
+    if (signal?.aborted) break;
+    onStage('clerk', roll);
+    clerk = await askClerk();
+  }
+  if (!clerk.ok && (clerk.kind === 'aborted' || signal?.aborted)) return { ok: false, error: clerk, stage: 'clerk', pending: rewrite ? null : { action, ruling, roll, seconds, refereeRaw } };
 
   // From here on the turn is accepted.
   pushSnapshot(world);
@@ -150,7 +157,10 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   const via = nar.via === 'pc' && nar.rescued ? 'pc-rescued'
     : nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
   world.log.push({ turn: t, kind: 'gm', text: prose, via });
-  if (recordFailed) world.log.push({ turn: t, kind: 'system', text: `The record could not be updated this turn (${clerk.message || 'no reply'}). If money, items or people are now wrong, fix them in Inventory or Here, or Undo and resend.` });
+  if (recordFailed) {
+    world.log.push({ turn: t, kind: 'system', recordRetry: { action: actionText, ruling: rulingBlock, kind: ruling.kind, trusted: rewrite || undefined },
+      text: `The record could not be updated this turn (${clerk.message || 'no reply'}). Tap "Update the record" to try again, or fix things in Inventory or Here.` });
+  }
 
   if (seconds === undefined) seconds = durationSeconds(ruling.duration, ruling.minutes, rng);
   world.clock += seconds;
@@ -182,6 +192,31 @@ export function keepRecord(world, clerk, { trusted = false } = {}) {
     for (const x of dropped) rejected.push({ change: { op: 'present', ref: x.ref }, reason: x.reason });
   }
   return { applied, rejected, recordFailed: false };
+}
+
+/**
+ * Runs the record-keeper again for the latest turn, after it failed the first time.
+ * Only the newest turn can be redone: later turns would have built on the gap.
+ * Mutates `world` only on success. Resolves to { ok, applied, rejected } or { ok: false, error }.
+ */
+export async function redoRecord(world, entry, { ask = defaultAsk, signal } = {}) {
+  const info = entry && entry.recordRetry;
+  if (!info || entry.turn !== world.turn) return { ok: false, error: { kind: 'stale', message: 'Only the latest turn\'s record can be updated again.' } };
+  const gm = world.log.find((e) => e.turn === entry.turn && e.kind === 'gm');
+  if (!gm) return { ok: false, error: { kind: 'stale', message: 'That turn\'s story could not be found.' } };
+  const packet = buildPacket(world, { kind: info.kind });
+  const clerk = await ask({ ...clerkRequest(world, packet, info.action, info.ruling, gm.text), signal, preferPc: (world.pcUntilTurn || 0) > world.turn });
+  if (!clerk.ok) return { ok: false, error: clerk };
+  const { applied, rejected, recordFailed } = keepRecord(world, clerk, { trusted: !!info.trusted });
+  if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
+  for (const r of rejected) world.rejected.push({ turn: entry.turn, change: r.change, reason: r.reason });
+  if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
+  const i = world.log.indexOf(entry);
+  if (i >= 0) world.log.splice(i, 1);
+  for (const id of world.present) if (world.people[id]) world.people[id].lastSeen = world.clock;
+  world.debug = { ...(world.debug || {}), record: clerk.data, applied, rejected, models: { ...((world.debug || {}).models || {}), record: clerk.model } };
+  world.updatedAt = Date.now();
+  return { ok: true, applied, rejected };
 }
 
 /** The opening scene, after character creation. Not undoable (there is nothing before it). */

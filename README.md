@@ -20,6 +20,7 @@ A single-player text RPG where an AI game master narrates any world you describe
   - automatic saves, plus Export and Import backups
   - a developer console
   - a record-keeper step after every reply: a second, quick request reads the new story and records what changed (money, items, people, who is present, positions, deals), so the narrator only writes prose
+  - if the record step is cut off because the phone was closed, it is asked again once the app is back; if it still fails, the note under the turn has an "Update the record" button
   - deals and promises: agreements are recorded and shown to the game master every turn until done or broken
 
 - **Text services:** the game master runs on Gemini (free), on a model on your own PC through LM Studio and Tailscale (private and unfiltered), or on **Auto**. Auto uses Gemini, hands anything Gemini blocks to the home PC, and stays on the PC for about six turns while that scene continues. A footnote marks replies written on the PC.

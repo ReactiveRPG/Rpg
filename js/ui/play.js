@@ -3,7 +3,7 @@
 
 import { h, prose, toast, hiddenTimes, whenVisible, INTERRUPTED } from './dom.js';
 import { loadSettings } from '../settings.js';
-import { playTurn, summarise } from '../game/turn.js';
+import { playTurn, summarise, redoRecord } from '../game/turn.js';
 import { undoTurns, player, currentPlace } from '../game/state.js';
 import { saveWorld, loadWorld, savePendingTurn, loadPendingTurn, clearPendingTurn } from '../game/saves.js';
 import { db } from '../db.js';
@@ -76,7 +76,13 @@ export async function renderPlay(root, ctx) {
       return h('div.msg.gm', prose(e.text), note ? h('p.footnote', note) : null);
     }
     if (e.kind === 'roll') return settings.showDice ? h('div.msg.roll', e.text) : null;
-    if (e.kind === 'system') return h('div.msg.system', e.text);
+    if (e.kind === 'system') {
+      // A record that failed on the newest turn can be asked for again.
+      const canRedo = e.recordRetry && e.turn === ctx.world.turn;
+      return h('div.msg.system', e.text, canRedo
+        ? h('div', { style: { marginTop: '0.4em' } }, h('button.small', { type: 'button', onclick: (ev) => updateRecord(e, ev.currentTarget) }, 'Update the record'))
+        : null);
+    }
     return null;
   }
 
@@ -150,6 +156,7 @@ export async function renderPlay(root, ctx) {
     const ctrl = new AbortController();
     cancelCtrl = ctrl;
     const hiddenBefore = hiddenTimes();
+    let hiddenAtRecord = hiddenBefore;
     const note = (p) => savePendingTurn({ worldId: w.id, baseTurn: w.turn, action, rewrite, pending: p }).catch(() => {});
     await note(resend ? pending : null);
 
@@ -160,6 +167,14 @@ export async function renderPlay(root, ctx) {
         pending: resend ? pending : null,
         length: settings.replyLength,
         signal: ctrl.signal,
+        // The record step was cut off by leaving the app: wait until it is back, then ask again.
+        retryRecord: async (r) => {
+          if (hiddenTimes() === hiddenAtRecord && !document.hidden) return false;
+          if (!INTERRUPTED.includes(r.kind)) return false;
+          setBusy(true, 'Picking up the record where you left off…');
+          await whenVisible();
+          return !ctrl.signal.aborted;
+        },
         onStage: (stage, roll, info) => {
           if (stage === 'narrator') {
             if (info) { pending = info; note(info); }
@@ -169,7 +184,7 @@ export async function renderPlay(root, ctx) {
             }
             setBusy(true, 'The narrator is writing…');
           }
-          if (stage === 'clerk') setBusy(true, 'Updating the record…');
+          if (stage === 'clerk') { hiddenAtRecord = hiddenTimes(); setBusy(true, 'Updating the record…'); }
           if (stage === 'status') setBusy(true, info);
         },
       });
@@ -213,6 +228,32 @@ export async function renderPlay(root, ctx) {
     await clearPendingTurn();
     if (ctx.world === w) refresh();
     backgroundSummary();
+  }
+
+  async function updateRecord(entry, btn) {
+    if (busy) { toast('Wait for this turn to finish first'); return; }
+    const w = ctx.world;
+    btn.disabled = true;
+    const ctrl = new AbortController();
+    cancelCtrl = ctrl;
+    setBusy(true, 'Updating the record…');
+    let res;
+    try {
+      res = await redoRecord(w, entry, { signal: ctrl.signal });
+    } catch (err) {
+      console.error(err);
+      res = { ok: false, error: { kind: 'crash', message: String(err && err.message || err) } };
+    }
+    cancelCtrl = null;
+    setBusy(false);
+    if (!res.ok) {
+      btn.disabled = false;
+      toast(ctrl.signal.aborted ? 'Cancelled.' : `Could not update the record: ${res.error.message || res.error.kind}`, 5000);
+      return;
+    }
+    await saveWorld(w);
+    if (ctx.world === w) refresh();
+    toast(`Record updated${res.applied.length ? ` (${res.applied.length} change${res.applied.length === 1 ? '' : 's'})` : ''}`);
   }
 
   function cancelTurn() {

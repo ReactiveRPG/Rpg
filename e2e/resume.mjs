@@ -21,6 +21,7 @@ let failNext = false;   // drop narrator requests while set (as if the app was p
 let refereeCalls = 0;
 let liteBusy = false;    // the game-master model answers 503 to the referee
 let narrations = 0;
+let recordFail = false;  // drop record-keeper requests while set
 
 async function fakeGemini(route) {
   const url = route.request().url();
@@ -43,7 +44,10 @@ async function fakeGemini(route) {
     return route.fulfill(reply({ possible: true, needsCheck: true, skill: 'Lockpicking', attribute: 'agility', difficulty: 12, duration: 'short', kind: 'other' }));
   }
   if (sys.startsWith('You keep the running summary')) return route.fulfill(reply('Summary.'));
-  if (sys.startsWith('You are the record-keeper')) return route.fulfill(reply({ changes: [] }));
+  if (sys.startsWith('You are the record-keeper')) {
+    if (recordFail) { await sleep(800); return route.abort('failed'); }
+    return route.fulfill(reply({ changes: [] }));
+  }
   if (delay) await sleep(delay);
   if (failNext) return route.abort('failed');
   const user = body.contents[0].parts[0].text;
@@ -151,6 +155,28 @@ try {
   await page.waitForSelector('.msg.roll >> text=Lockpicking: rolled');
   await page.waitForFunction(() => /Narration \d+\.\s*$/.test(document.querySelector('.log').innerText.trim()));
   liteBusy = false;
+
+  // 5c. The record step is cut off while the app is away: it is asked again once back.
+  recordFail = true;
+  await page.fill('.action-bar textarea', 'I count my coins.');
+  await btn('Send').click();
+  await page.waitForSelector('text=Updating the record');
+  await setHidden(true);
+  await page.waitForSelector('text=Picking up the record where you left off');
+  recordFail = false;
+  await setHidden(false);
+  await btn('Send').waitFor();
+  if (await page.locator('text=record could not be updated').count()) throw new Error('record note shown after a retry that worked');
+
+  // 5d. The record fails with the app open: the note offers "Update the record".
+  recordFail = true;
+  await page.fill('.action-bar textarea', 'I count them again.');
+  await btn('Send').click();
+  await page.waitForSelector('text=record could not be updated', { timeout: 30000 });
+  recordFail = false;
+  await btn('Update the record').click();
+  await page.waitForSelector('text=Record updated');
+  if (await page.locator('text=record could not be updated').count()) throw new Error('record note left after updating');
 
   // 6. A fault in the game's own code: shown plainly, the turn rolled back, never stuck.
   await page.evaluate(() => new Promise((resolve, reject) => {

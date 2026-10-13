@@ -5,7 +5,7 @@ import { worldFromPremise, addCharacter, normaliseChoices } from '../js/game/cre
 import { canPlace, findPlace, carriedItems, carriedWeight, dependentSlotsInUse } from '../js/game/inventory.js';
 import { makeItem, undoTurns, pushSnapshot } from '../js/game/state.js';
 import { applyChanges } from '../js/game/changes.js';
-import { playTurn, normaliseRuling } from '../js/game/turn.js';
+import { playTurn, normaliseRuling, redoRecord } from '../js/game/turn.js';
 import { formatDateTime, durationSeconds } from '../js/game/clock.js';
 import { buildPacket } from '../js/game/packet.js';
 
@@ -424,4 +424,45 @@ test('the referee asks for plain JSON with its fields described, not the strict 
   assert.equal(r.json, true);
   assert.match(r.system, /Reply with JSON only, exactly these fields:[\s\S]*"duration":"instant \| moment/);
   assert.equal(r.timeoutMs, 30000);
+});
+
+test('a record cut off by leaving the app is asked again once the app is back', async () => {
+  const w = newGame();
+  const money = w.people[w.playerId].money;
+  let n = 0;
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'trade' }),
+    narrator: say('You pay Bren five.'),
+    clerk: () => (++n === 1 ? { ok: false, kind: 'network', message: 'cut off' } : record({ changes: [{ op: 'pay', from: w.playerId, amount: 5 }] })),
+  });
+  let waited = 0;
+  const r = await playTurn(w, 'I pay Bren', { ask, retryRecord: async () => { waited++; return true; } });
+  assert.equal(r.ok, true);
+  assert.equal(r.recordFailed, false);
+  assert.equal(waited, 1);
+  assert.equal(n, 2);
+  assert.ok(!w.log.some((e) => e.recordRetry));
+  assert.equal(w.people[w.playerId].money, money - 5);
+});
+
+test('"Update the record" re-runs the record-keeper for the latest turn only', async () => {
+  const w = newGame();
+  const money = w.people[w.playerId].money;
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'trade' }),
+    narrator: say('You pay Bren five.'),
+    clerk: { ok: false, kind: 'network', message: 'cut off' },
+  });
+  await playTurn(w, 'I pay Bren', { ask });
+  const note = w.log.at(-1);
+  assert.ok(note.recordRetry);
+  const fixed = fakeAI({ clerk: record({ changes: [{ op: 'pay', from: w.playerId, amount: 5 }] }) });
+  const r = await redoRecord(w, note, { ask: fixed.ask });
+  assert.equal(r.ok, true);
+  assert.match(fixed.calls[0].req.messages[0].text, /You pay Bren five/);
+  assert.equal(w.people[w.playerId].money, money - 5);
+  assert.ok(!w.log.includes(note));
+  // An older turn's note cannot be redone.
+  const stale = { turn: w.turn - 1, kind: 'system', recordRetry: note.recordRetry };
+  assert.equal((await redoRecord(w, stale, { ask: fixed.ask })).ok, false);
 });
