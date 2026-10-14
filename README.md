@@ -22,6 +22,8 @@ A single-player text RPG where an AI game master narrates any world you describe
   - money is only the money number: cash items are refused, every money change shows as a note under the turn, Fix money in Inventory, and old cash items can be folded into money
   - homes: owned or rented, made with the character (landlord card and rent deal), shown to the game master every turn; "Add a place you know" in Here for existing worlds
   - Places tab: every known place with its card; make a place your home, change landlord or rent, or end it by hand
+  - Inventory tools: "Where is everything?" (every item, wherever it is, with Bring it to me), Add an item you have, Edit an item; starting gear with no room is reported
+  - item_change: opening or unwrapping changes an item instead of destroying it; refused item and money changes show as a note under the turn
   - no second pair of the same worn clothing; the referee allows travel to places not yet recorded
   - Check connection says which link to the home PC is broken (phone, PC, LM Studio, CORS)
   - automatic saves, plus Export and Import backups

@@ -10,7 +10,7 @@ import { shortDate } from './clock.js';
 import { isCashLike } from './money.js';
 
 export const CHANGE_OPS = [
-  'move_item', 'new_item', 'use_up_item', 'pay',
+  'move_item', 'new_item', 'item_change', 'use_up_item', 'pay',
   'new_person', 'person_update', 'person_enters', 'person_leaves', 'person_dies',
   'relationship', 'history',
   'new_place', 'player_moves', 'place_update', 'scene_state',
@@ -188,6 +188,26 @@ function applyOne(world, c, trusted) {
       const r = placeItem(world, it, dest, c.slot);
       if (!r.ok) { it.holder = prev.holder; it.slot = prev.slot; return no(r.reason); }
       return { ok: true, note: r.note };
+    }
+
+    case 'item_change': {
+      // Opening, unwrapping, loading or damaging an item changes it; it does not vanish.
+      const it = item(world, c.itemId || c.name);
+      if (!it) return no(`no such item "${c.itemId || c.name}"`);
+      if (it.gone) return no(`${it.name} is gone`);
+      if (!trusted && !reachableItemIds(world).has(it.id)) return no(`${it.name} is not here`);
+      const was = it.name;
+      const newName = String(c.newName || c.rename || '').trim().slice(0, 80);
+      if (newName) {
+        if (isCashLike(world, { name: newName })) return no('money is not an item: record it with pay');
+        it.name = newName;
+      }
+      if (SIZES.includes(c.size)) it.size = c.size;
+      if (Array.isArray(c.tags)) it.tags = [...new Set(c.tags.map((t) => String(t).trim().toLowerCase().slice(0, 20)).filter(Boolean))].slice(0, 8);
+      if (c.condition) it.condition = String(c.condition).slice(0, 40);
+      if (c.weight != null && Number.isFinite(Number(c.weight))) it.weight = clamp(Number(c.weight), 0, 2000);
+      if (c.value != null && Number.isFinite(Number(c.value))) it.value = Math.max(0, Math.round(Number(c.value)));
+      return { ok: true, note: newName && newName !== was ? `${was} is now ${it.name}` : undefined };
     }
 
     case 'use_up_item': {

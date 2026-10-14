@@ -258,3 +258,32 @@ export function dependentSlotsInUse(world, item) {
   }
   return out;
 }
+
+/**
+ * Where an item is, in words, for the "Where is everything?" list.
+ * Returns { group: 'you' | 'place' | 'person' | 'gone' | 'lost', label }.
+ */
+export function whereIs(world, item) {
+  if (item.gone) return { group: 'gone', label: `gone: ${item.goneReason || 'used up'}` };
+  let cur = item;
+  const chain = [];
+  for (let guard = 0; cur && guard < 20; guard++) {
+    const h = cur.holder;
+    if (isPerson(world, h)) {
+      const p = world.people[h];
+      const inside = chain.length ? ` (in ${chain.join(' in ')})` : '';
+      if (p.isPlayer) return { group: 'you', label: (chain.length ? `in ${chain.join(' in ')}` : slotLabel(cur.slot, world, cur)) };
+      return { group: 'person', label: `with ${p.fixed.name}${p.dead ? ' (dead)' : ''}${inside}` };
+    }
+    if (isPlace(world, h)) {
+      const inside = chain.length ? ` (in ${chain.join(' in ')})` : '';
+      return { group: 'place', label: `at ${world.places[h].name}${h === world.currentPlaceId ? ' (here)' : ''}${inside}` };
+    }
+    const bag = world.items[h];
+    if (!bag) break;
+    if (bag.gone) return { group: 'lost', label: `inside ${bag.name}, which is gone` };
+    chain.push(bag.name);
+    cur = bag;
+  }
+  return { group: 'lost', label: 'nowhere (the record lost track of it)' };
+}

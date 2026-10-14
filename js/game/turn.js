@@ -151,7 +151,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   if (roll) world.log.push({ turn: t, kind: 'roll', text: rollText(roll), roll });
   else if (!ruling.possible) world.log.push({ turn: t, kind: 'roll', text: `Not possible: ${ruling.reason}` });
 
-  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(world, clerk, { trusted: rewrite });
+  const { applied, rejected, recordFailed, moneyNote: paid, refusedNote: refused } = keepRecord(world, clerk, { trusted: rewrite });
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
@@ -161,6 +161,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
     : nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
   world.log.push({ turn: t, kind: 'gm', text: prose, via });
   if (paid) world.log.push({ turn: t, kind: 'system', money: true, text: paid });
+  if (refused) world.log.push({ turn: t, kind: 'system', refused: true, text: refused });
   if (recordFailed) {
     world.log.push({ turn: t, kind: 'system', recordRetry: { action: actionText, ruling: rulingBlock, kind: ruling.kind, trusted: rewrite || undefined },
       text: `The record could not be updated this turn (${clerk.message || 'no reply'}). Tap "Update the record" to try again, or fix things in Inventory or Here.` });
@@ -199,7 +200,23 @@ export function keepRecord(world, clerk, { trusted = false } = {}) {
     const { dropped } = applyPresent(world, d.present);
     for (const x of dropped) rejected.push({ change: { op: 'present', ref: x.ref }, reason: x.reason });
   }
-  return { applied, rejected, recordFailed: false, moneyNote: p ? moneyNote(world, moneyBefore, applied) : null };
+  return { applied, rejected, recordFailed: false, moneyNote: p ? moneyNote(world, moneyBefore, applied) : null, refusedNote: refusedNote(world, rejected) };
+}
+
+const ITEM_OPS = ['new_item', 'move_item', 'item_change', 'use_up_item', 'pay'];
+
+/** Item and money changes the code refused, said plainly, so a gap between story and record shows at once. */
+export function refusedNote(world, rejected) {
+  const nameOf = (ref) => world.items[ref]?.name || world.people[ref]?.fixed.name || String(ref || '?').slice(0, 40);
+  const parts = rejected.filter((r) => ITEM_OPS.includes(r.change && r.change.op)).map(({ change: c, reason }) => {
+    const what = c.op === 'new_item' ? `new item ${c.name || '?'}`
+      : c.op === 'move_item' ? `move ${nameOf(c.itemId || c.name)}`
+      : c.op === 'item_change' ? `change ${nameOf(c.itemId || c.name)}`
+      : c.op === 'use_up_item' ? `${nameOf(c.itemId || c.name)} used up`
+      : `payment of ${c.amount ?? '?'}${c.to ? ' to ' + nameOf(c.to) : ''}`;
+    return `${what} (${reason})`;
+  });
+  return parts.length ? `Not recorded: ${parts.join('; ')}. Fix it in Inventory if the story is right.` : null;
 }
 
 /** "Money −20 Dollars: to Sal (cab fare). Now 35 Dollars." — so every change to money can be seen. */
@@ -239,9 +256,10 @@ export async function redoRecord(world, entry, { ask = defaultAsk, signal } = {}
   const packet = buildPacket(world, { kind: info.kind });
   const clerk = await ask({ ...clerkRequest(world, packet, info.action, info.ruling, gm.text), signal, preferPc: (world.pcUntilTurn || 0) > world.turn });
   if (!clerk.ok) return { ok: false, error: clerk };
-  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(world, clerk, { trusted: !!info.trusted });
+  const { applied, rejected, recordFailed, moneyNote: paid, refusedNote: refused } = keepRecord(world, clerk, { trusted: !!info.trusted });
   if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
   if (paid) world.log.push({ turn: entry.turn, kind: 'system', money: true, text: paid });
+  if (refused) world.log.push({ turn: entry.turn, kind: 'system', refused: true, text: refused });
   for (const r of rejected) world.rejected.push({ turn: entry.turn, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
   const i = world.log.indexOf(entry);
@@ -310,9 +328,10 @@ export async function editLastReply(world, newText, { updateRecord = true, ask =
     next.log.push(e === gm ? { ...e, text, edited: true } : { ...e });
   }
   next.rejected = world.rejected.filter((r) => r.turn !== t);
-  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(next, clerk, { trusted: !!info.trusted });
+  const { applied, rejected, recordFailed, moneyNote: paid, refusedNote: refused } = keepRecord(next, clerk, { trusted: !!info.trusted });
   if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
   if (paid) next.log.push({ turn: t, kind: 'system', money: true, text: paid });
+  if (refused) next.log.push({ turn: t, kind: 'system', refused: true, text: refused });
   for (const r of rejected) next.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (next.rejected.length > MAX_REJECTED_LOG) next.rejected.splice(0, next.rejected.length - MAX_REJECTED_LOG);
   next.clock = world.clock;

@@ -646,3 +646,45 @@ test('homes can be made, changed and ended by hand', async () => {
   endHome(w, wall);
   assert.equal(wall.home, undefined);
 });
+
+test('unwrapping changes an item instead of destroying it; refused changes get a note', async () => {
+  const w = newGame();
+  applyChanges(w, [{ op: 'new_item', name: 'Wrapped parcel', size: 'small', to: 'player', source: 'from the dealer' }]);
+  const parcel = Object.values(w.items).find((i) => i.name === 'Wrapped parcel');
+  const r = applyChanges(w, [{ op: 'item_change', itemId: parcel.id, newName: '.38 revolver', tags: ['weapon', 'gun'] }]);
+  assert.equal(r.rejected.length, 0);
+  assert.equal(parcel.name, '.38 revolver');
+  assert.equal(parcel.gone, false);
+  assert.deepEqual(parcel.tags, ['weapon', 'gun']);
+
+  const { ask, calls } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'other' }),
+    narrator: say('You check the gun.'),
+    clerk: record({ changes: [{ op: 'move_item', itemId: 'i1', to: 'here' }, { op: 'pay', from: 'player', amount: 500 }] }),
+  });
+  await playTurn(w, 'I check the gun', { ask });
+  const note = w.log.find((e) => e.refused);
+  assert.match(note.text, /Not recorded: move i1 \(no such item "i1"\); payment of 500 \(not enough money/);
+  assert.match(calls[1].req.messages[0].text, /If they reach for or use something not on it, it is not there/);
+  assert.match(calls[2].req.system, /use_up_item ONLY when the item itself is truly gone/);
+});
+
+test('where is everything: carried, elsewhere, with people, gone', async () => {
+  const { whereIs } = await import('../js/game/inventory.js');
+  const w = newGame();
+  const knife = Object.values(w.items).find((i) => i.name === 'Knife');
+  assert.equal(whereIs(w, knife).group, 'you');
+  // Starting gear with no room is reported, not silently dropped.
+  const w2 = worldFromPremise({ title: 'X', startPlace: { name: 'The Docks' }, priceCatalogue: [] }, 'x');
+  addCharacter(w2, normaliseChoices({ name: 'Bo', sex: 'male', age: 30 }), { gear: [
+    { name: 'Anvil', size: 'huge', slot: 'both_hands' }, { name: 'Cart wheel', size: 'huge', slot: 'both_hands' }] });
+  const wheel = Object.values(w2.items).find((i) => i.name === 'Cart wheel');
+  assert.deepEqual(whereIs(w2, wheel), { group: 'place', label: 'at The Docks (here)' });
+  assert.match(w2.log.find((e) => e.kind === 'system').text, /No room on you for: Cart wheel\. Left at The Docks/);
+  applyChanges(w, [{ op: 'use_up_item', itemId: knife.id, reason: 'lost in the harbour' }]);
+  assert.deepEqual(whereIs(w, knife), { group: 'gone', label: 'gone: lost in the harbour' });
+  const tomas = Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed');
+  const picks = Object.values(w.items).find((i) => i.name === 'Lockpicks');
+  picks.holder = tomas.id; picks.slot = 'pants_pockets';
+  assert.equal(whereIs(w, picks).label, 'with Tomas Reed');
+});

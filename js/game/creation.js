@@ -124,6 +124,12 @@ export function addCharacter(world, choices, data) {
   if (ally) Object.assign(ally.relationship, { trust: 40, respect: 25 });
   const enemy = npc(d.enemy, 'enemy');
   if (enemy) Object.assign(enemy.relationship, { trust: -40, respect: -10 });
+  // Nothing goes missing silently: gear with no room on the character is left
+  // where the story starts, and the player is told.
+  if (dropped.length) {
+    const here = world.places[world.currentPlaceId];
+    world.log.push({ turn: 0, kind: 'system', text: `No room on you for: ${dropped.join(', ')}. Left at ${here ? here.name : 'the start'}; pick it up in Inventory (On the ground) or make room first.` });
+  }
   const h = d.home;
   const home = h && h.name && h.kind !== 'none' ? addHome(world, h, { before: true }) : null;
   return { player: p, ally, enemy, home, dropped };

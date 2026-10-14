@@ -118,6 +118,7 @@ export const FINAL_REMINDER = `BEFORE YOU WRITE, REMEMBER:
 - Positions: start from CURRENT POSITIONS in the packet. The player's new action replaces whatever it obviously replaces (standing someone up ends kneeling; a hand doing something new has let go of what it held). Handle such obvious knock-on effects sensibly. Anything the new action does not touch stays as it was.
 - Let the scene move at the player's pace: one beat at a time, no skipping ahead, no wrapping things up.
 - End the reply on other people or the scene, never on the player character.
+- Items: the player character has ONLY what is on their carried list. If they reach for or use something not on it, it is not there: show them finding it missing. Never produce it.
 - Reply with the story text only.`;
 
 /**
@@ -175,6 +176,7 @@ export function stripCodes(text) {
 export const CHANGE_FORMATS = [
   '{"op":"new_item","name":"","qty":1,"size":"tiny|small|medium|large|huge","weight":0.5,"value":0,"tags":["weapon"],"to":"p1|here|i7","slot":"optional","source":"where it came from"}',
   '{"op":"move_item","itemId":"i3","to":"p2|here|i7","slot":"optional","qty":"optional, to split a stack"}',
+  '{"op":"item_change","itemId":"i3","newName":"","size":"","tags":[],"condition":""}',
   '{"op":"use_up_item","itemId":"i3","qty":1,"reason":"eaten|spent|broken|lost"}',
   '{"op":"pay","from":"p1","to":"p2","amount":10,"reason":""}',
   '{"op":"new_person","name":"","sex":"female|male|other","pronouns":"she/her","age":30,"looks":"","voice":"","role":"","job":"","mood":"","goal":""}',
@@ -201,7 +203,10 @@ CHANGES: every change the new narration states or clearly implies. Use ids from 
 - person_dies only if the narration says they are dead.
 - history: one line on a person's card for anything memorable they did with the player (no date; the code adds it).
 - relationship: only when the moment really changes how someone feels about the player.
-- new_item only with a real source in the scene (taken, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person, "here" for the ground, or a bag id).
+- new_item only with a real source in the scene (taken, handed over, bought). move_item when something changes hands or place (to a person, "here" for the ground, or a bag id).
+- item_change when an item is opened, unwrapped, unpacked, loaded, damaged or otherwise changed: a "wrapped parcel" that turns out to hold a pistol becomes the pistol (newName), in the same place. If a wrapping holds several things, item_change it into one of them and new_item the rest with source "unwrapped from <name>".
+- use_up_item ONLY when the item itself is truly gone: eaten, drunk, spent, burnt, broken beyond use, or lost. Never for opening or unwrapping.
+- Use only item ids that appear in the packet. If the narration uses an item the packet does not list, record nothing for it.
 - pay for money changing hands, with the amount the narration states and a short reason. The code does the arithmetic. Money found or picked up: pay with only "to". Money lost or stolen: pay with only "from" (or "to" the thief).
 - Money is NEVER an item: never new_item for cash, bills, coins of the currency, or "a stash of dollars". Use pay.
 - Do not re-create items the player already carries or wears (check the carried list): a second pair of the same boots is a mistake.

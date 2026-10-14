@@ -291,6 +291,31 @@ try {
   await page.locator('[aria-label=Close]').last().click();
   await page.waitForSelector('.msg.system >> text=is now your home (owned)');
 
+  // Add an item by hand, edit it, lose it, find it and bring it back.
+  await btn('Inventory').click();
+  await btn('Add an item you have').click();
+  await page.fill('input[placeholder="e.g. .38 revolver"]', 'Revolver');
+  await page.fill('input[placeholder="e.g. weapon, gun"]', 'weapon, gun');
+  await btn('Add').click();
+  await page.waitForSelector('td >> text=Revolver');
+  await page.click('td >> text=Revolver');
+  await btn('Edit this item (name, size, tags…)').click();
+  await page.fill('input[placeholder="e.g. .38 revolver"]', '.38 revolver');
+  await btn('Save').click();
+  await page.waitForSelector('td >> text=.38 revolver');
+  await page.click('td >> text=.38 revolver');
+  await btn('Remove from the game').click();
+  await page.waitForSelector('td >> text=.38 revolver', { state: 'detached' });
+  await btn('Where is everything?').click();
+  await page.fill('input[type=search]', '.38');
+  await page.waitForSelector('h3 >> text=Gone (1)');
+  await shot('12f-finder');
+  await page.click('button.list-btn:has-text(".38 revolver")');
+  await btn('Bring it back to me').click();
+  await page.waitForSelector('td >> text=.38 revolver');
+  await page.locator('[aria-label=Close]').last().click();
+  await page.waitForSelector('.msg.system >> text=.38 revolver: brought back');
+
   await btn('Console').click();
   await page.waitForSelector('table.sheet >> text=narrator');
   await page.screenshot({ path: `${process.env.SHOTS || '.'}/12a-requests.png` });
