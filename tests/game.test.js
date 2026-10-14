@@ -623,3 +623,26 @@ test('the referee allows going to places not yet recorded', async () => {
   assert.match(calls[0].req.system, /A place does not need to be in the packet/);
   assert.match(calls[1].req.system, /Never invent facts about the player character's own life/);
 });
+
+test('homes can be made, changed and ended by hand', async () => {
+  const { makeHome, endHome, updateRent, rentDeals } = await import('../js/game/homes.js');
+  const w = newGame();
+  const wall = Object.values(w.places).find((p) => p.name === 'Harbour Wall');
+  makeHome(w, wall, { kind: 'rented', landlord: 'Old Marta', rent: 5, rentEvery: 'week' });
+  assert.equal(rentDeals(w, wall).length, 1);
+  assert.match(rentDeals(w, wall)[0].terms, /5 pennies a week, paid to Old Marta/);
+  // A new landlord and rent update the same deal, with a note of the old terms.
+  updateRent(w, wall, { landlord: 'Tomas Reed', rent: 8, rentEvery: 'week' });
+  const deal = rentDeals(w, wall)[0];
+  assert.equal(rentDeals(w, wall).length, 1);
+  assert.equal(deal.personId, Object.values(w.people).find((p) => p.fixed.name === 'Tomas Reed').id);
+  assert.match(deal.terms, /8 pennies a week, paid to Tomas Reed/);
+  assert.match(deal.notes[0], /was: Rent for Harbour Wall: 5 pennies/);
+  // Buying it ends the rent; giving it up ends the home.
+  makeHome(w, wall, { kind: 'owned' });
+  assert.equal(rentDeals(w, wall).length, 0);
+  assert.equal(deal.status, 'done');
+  assert.equal(wall.home.kind, 'owned');
+  endHome(w, wall);
+  assert.equal(wall.home, undefined);
+});

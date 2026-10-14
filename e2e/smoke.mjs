@@ -270,6 +270,27 @@ try {
   await page.waitForSelector('text=Rent for Room above the chandler');
   await page.click('[aria-label=Close]');
 
+  // Places: change the rent by hand, then give the home up.
+  await btn('Places').click();
+  await page.waitForSelector('text=Your home (rented from Old Marta)');
+  await shot('12d-places');
+  await page.click('button.list-btn:has-text("Room above the chandler")');
+  await btn('Change landlord or rent').click();
+  await page.fill('.overlay:last-of-type input[type=number]', '15');
+  await btn('Save').click();
+  await page.waitForSelector('text=Rent for Room above the chandler: 15 pennies a month, paid to Old Marta.');
+  await shot('12e-home-card');
+  await btn('No longer my home').click();
+  await btn('Confirm').click();
+  await page.waitForSelector('text=Not your home.');
+  await btn('Make this my home').click();
+  await page.selectOption('.overlay:last-of-type select', 'owned');
+  await btn('Save').click();
+  await page.waitForSelector('text=Your home (owned)');
+  await page.locator('[aria-label=Close]').last().click();
+  await page.locator('[aria-label=Close]').last().click();
+  await page.waitForSelector('.msg.system >> text=is now your home (owned)');
+
   await btn('Console').click();
   await page.waitForSelector('table.sheet >> text=narrator');
   await page.screenshot({ path: `${process.env.SHOTS || '.'}/12a-requests.png` });

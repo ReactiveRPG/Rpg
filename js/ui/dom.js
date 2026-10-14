@@ -81,6 +81,8 @@ export function whenVisible() {
 export const INTERRUPTED = ['network', 'aborted', 'timeout', 'server', 'empty', 'bad_json'];
 
 export function toast(message, ms = 3000) {
+  // One message at a time: a new one replaces any still showing.
+  document.querySelectorAll('.toast').forEach((old) => old.remove());
   const t = h('div.toast', message);
   document.body.append(t);
   setTimeout(() => t.remove(), ms);

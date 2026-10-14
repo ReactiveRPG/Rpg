@@ -16,6 +16,7 @@ import { openPeople } from './people-screen.js';
 import { openPlace } from './place-screen.js';
 import { openConsole } from './console-screen.js';
 import { openDeals } from './deals-screen.js';
+import { openPlaces } from './places-screen.js';
 import { openSettings } from './settings-screen.js';
 
 /**
@@ -33,6 +34,7 @@ export async function renderPlay(root, ctx) {
     h('button.chip', { type: 'button', onclick: () => openInventory(ctx, refresh) }, 'Inventory'),
     h('button.chip', { type: 'button', onclick: () => openPeople(ctx) }, 'People'),
     h('button.chip', { type: 'button', onclick: () => openPlace(ctx, refresh) }, 'Here'),
+    h('button.chip', { type: 'button', onclick: () => openPlaces(ctx, refresh) }, 'Places'),
     h('button.chip', { type: 'button', onclick: () => openDeals(ctx, refresh) }, 'Deals'),
     h('button.chip', { type: 'button', onclick: () => (busy ? toast('Wait for this turn to finish first') : ctx.goHome()) }, 'Worlds'),
     h('button.chip', { type: 'button', onclick: () => openConsole(ctx) }, 'Console'),
