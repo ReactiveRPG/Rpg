@@ -115,6 +115,20 @@ function wornTags(world, personId) {
   return tags;
 }
 
+/** Clothing a person wears only one of at a time. */
+export const ONE_WORN = ['boots', 'pants', 'belt', 'socks', 'hat', 'gloves'];
+
+/** What already worn would clash with wearing `item` too (two pairs of boots), or null. */
+export function wornClash(world, personId, item) {
+  const name = String(item.name || '').trim().toLowerCase();
+  for (const other of directlyHeld(world, personId)) {
+    if (other.slot !== 'worn' || other.id === item.id) continue;
+    if (other.name.trim().toLowerCase() === name) return other;
+    if ((item.tags || []).some((t) => ONE_WORN.includes(t) && hasTag(other, t))) return other;
+  }
+  return null;
+}
+
 /** Whether a slot exists on this person right now (e.g. pockets need pants). */
 export function slotAvailable(world, personId, slot, item) {
   const def = SLOTS[slot];
@@ -170,6 +184,8 @@ export function canPlace(world, item, holderId, slot) {
   if (!def) return { ok: false, reason: `unknown slot "${slot}"` };
   if (slot === 'worn') {
     if (!(item.tags || []).some((t) => CLOTHING_TAGS.includes(t))) return { ok: false, reason: `${item.name} is not something you wear` };
+    const clash = wornClash(world, holderId, item);
+    if (clash) return { ok: false, reason: `already wearing ${clash.name}` };
   }
   if (!slotAvailable(world, holderId, slot, item)) {
     return { ok: false, reason: `${def.label} needs ${def.needs.join(' or ')}` };

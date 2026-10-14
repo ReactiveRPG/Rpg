@@ -243,6 +243,33 @@ try {
   if (!(await page.inputValue('.action-bar textarea'))) throw new Error('action not put back after taking back turns');
   await page.fill('.action-bar textarea', '');
 
+  // Fix money by hand.
+  await btn('Inventory').click();
+  await btn('Fix money').click();
+  await page.fill('.overlay input[type=number]', '99');
+  await btn('Save').click();
+  await page.waitForSelector('text=Money: 99 pennies');
+  await page.click('[aria-label=Close]');
+  await page.waitForSelector('.status-line >> text=99 pennies');
+  await page.waitForSelector('.msg.system >> text=Money set by you');
+
+  // Add a rented home the game did not know about.
+  await btn('Here').click();
+  await btn('Add a place you know').click();
+  await page.fill('input[placeholder^="e.g. My apartment"]', 'Room above the chandler');
+  await page.selectOption('.overlay select', 'rented');
+  await page.fill('input[placeholder^="Optional: e.g. Mrs."]', 'Old Marta');
+  await page.fill('input[placeholder="Optional"]', '12');
+  await shot('12c-add-home');
+  await btn('Add').click();
+  await page.waitForSelector('text=Home added');
+  await btn('Here').click();
+  await page.waitForSelector('text=Room above the chandler — rented from Old Marta');
+  await page.click('[aria-label=Close]');
+  await btn('Deals').click();
+  await page.waitForSelector('text=Rent for Room above the chandler');
+  await page.click('[aria-label=Close]');
+
   await btn('Console').click();
   await page.waitForSelector('table.sheet >> text=narrator');
   await page.screenshot({ path: `${process.env.SHOTS || '.'}/12a-requests.png` });

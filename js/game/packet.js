@@ -132,6 +132,18 @@ export function similarBlock(world, kind) {
     same.map((r) => `- turn ${r.turn}: "${trim(r.action, 160)}" → ${trim(r.outcome, 260)}`).join('\n');
 }
 
+/** Where the player character lives. Facts: never contradict them. */
+export function homesBlock(world) {
+  const homes = Object.values(world.places).filter((pl) => pl.home);
+  if (!homes.length) return 'THE PLAYER CHARACTER\'S HOME: none recorded. Do not invent where they live or say they have no home; keep it vague unless the player says.';
+  return 'THE PLAYER CHARACTER\'S HOME (fact; they can always go there):\n' + homes.map((pl) => {
+    const h = pl.home;
+    const landlord = h.kind === 'rented' ? `, rented from ${h.landlordId ? `[${h.landlordId}] ` : ''}${h.landlordName || 'a landlord not yet met'}` : ', owned';
+    const route = pl.id === world.currentPlaceId ? ' (here now)' : '';
+    return `[${pl.id}] ${pl.name}${pl.type ? ' — ' + pl.type : ''}${pl.region ? ', ' + pl.region : ''}${landlord}${route}${pl.description ? '. ' + pl.description : ''}`;
+  }).join('\n');
+}
+
 export function buildPacket(world, { kind } = {}) {
   const p = dateParts(world);
   const parts = [
@@ -152,6 +164,8 @@ export function buildPacket(world, { kind } = {}) {
     parts.push('OTHER CARDED PEOPLE (not here; use person_enters with their id if they arrive):\n' +
       absent.map((x) => `[${x.id}] ${x.fixed.name} — ${x.fixed.sex}, ${x.fixed.pronouns}${x.life.role ? ', ' + x.life.role : ''}${x.dead ? ', DEAD' : ''}`).join('\n'));
   }
+  const homes = homesBlock(world);
+  if (homes) parts.push(homes);
   const deals = (world.deals || []).filter((d) => d.status === 'open');
   if (deals.length) {
     parts.push('OPEN DEALS AND PROMISES (what was really agreed; keep to these terms):\n' + deals.map((d) =>

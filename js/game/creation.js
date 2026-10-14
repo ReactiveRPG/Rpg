@@ -4,6 +4,8 @@ import { createWorld, makePerson, makePlace, makeItem, connectPlaces } from './s
 import { findPlace, canPlace, SLOTS, INSIDE, SIZES } from './inventory.js';
 import { clamp } from './dice.js';
 import { ATTRIBUTES, START_SKILL_MAX, skillTable, DEFAULT_PRONOUNS } from './rules.js';
+import { addHome } from './homes.js';
+import { isCashLike } from './money.js';
 
 /** Turns the world model's premise into a new world with its first places. */
 export function worldFromPremise(data, description) {
@@ -93,7 +95,7 @@ export function addCharacter(world, choices, data) {
   world.playerId = p.id;
 
   // Clothing first, so pockets exist before anything goes in them.
-  const gear = (Array.isArray(d.gear) ? d.gear : []).filter((g) => g && g.name).slice(0, 25);
+  const gear = (Array.isArray(d.gear) ? d.gear : []).filter((g) => g && g.name && !isCashLike(world, g)).slice(0, 25);
   const worn = gear.filter((g) => g.slot === 'worn');
   const rest = gear.filter((g) => g.slot !== 'worn');
   const bagsFirst = rest.sort((a, b) => hasBag(b) - hasBag(a));
@@ -122,7 +124,9 @@ export function addCharacter(world, choices, data) {
   if (ally) Object.assign(ally.relationship, { trust: 40, respect: 25 });
   const enemy = npc(d.enemy, 'enemy');
   if (enemy) Object.assign(enemy.relationship, { trust: -40, respect: -10 });
-  return { player: p, ally, enemy, dropped };
+  const h = d.home;
+  const home = h && h.name && h.kind !== 'none' ? addHome(world, h, { before: true }) : null;
+  return { player: p, ally, enemy, home, dropped };
 }
 
 function hasBag(g) { return (g.tags || []).includes('bag') ? 1 : 0; }

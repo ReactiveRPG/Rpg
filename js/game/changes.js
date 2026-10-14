@@ -5,16 +5,19 @@
 import { FIXED_FACTS, MUTABLE_PERSON_FIELDS, RELATION_ASPECTS, RELATION_STEPS, DEFAULT_PRONOUNS } from './rules.js';
 import { clamp } from './dice.js';
 import { makePerson, makePlace, makeItem, connectPlaces, normSex, findPersonByName, findPlaceByName, newId } from './state.js';
-import { canPlace, findPlace, carrierOf, isPerson, isPlace, isItem, directlyHeld, dependentSlotsInUse, slotAvailable, SLOTS, INSIDE, SIZES } from './inventory.js';
+import { canPlace, findPlace, carrierOf, isPerson, isPlace, isItem, directlyHeld, dependentSlotsInUse, slotAvailable, wornClash, SLOTS, INSIDE, SIZES, CLOTHING_TAGS } from './inventory.js';
 import { shortDate } from './clock.js';
+import { isCashLike } from './money.js';
 
 export const CHANGE_OPS = [
   'move_item', 'new_item', 'use_up_item', 'pay',
   'new_person', 'person_update', 'person_enters', 'person_leaves', 'person_dies',
   'relationship', 'history',
   'new_place', 'player_moves', 'place_update', 'scene_state',
-  'deal_new', 'deal_update',
+  'deal_new', 'deal_update', 'home_set',
 ];
+
+export const HOME_KINDS = ['owned', 'rented'];
 
 export const DEAL_STATUSES = ['open', 'done', 'broken'];
 
@@ -129,10 +132,18 @@ function applyOne(world, c, trusted) {
   switch (c.op) {
     case 'new_item': {
       if (!c.name) return no('new item has no name');
+      // Money is only ever the money number on a card, never an item.
+      if (isCashLike(world, c)) return no('money is not an item: record it with pay');
       if (!trusted && !String(c.source || '').trim()) return no('items cannot appear without a source');
       const dest = holderRef(world, c.to) || world.currentPlaceId;
       const destPerson = world.people[dest];
       if (destPerson && destPerson.dead) return no(`${destPerson.fixed.name} is dead`);
+      // A second pair of boots does not appear on feet that already wear some.
+      const clothing = (Array.isArray(c.tags) ? c.tags : []).some((t) => CLOTHING_TAGS.includes(String(t).toLowerCase()));
+      if (destPerson && (c.slot === 'worn' || (!c.slot && clothing))) {
+        const clash = wornClash(world, dest, { name: c.name, tags: (c.tags || []).map((t) => String(t).toLowerCase()) });
+        if (clash) return no(`${destPerson.fixed.name} is already wearing ${clash.name}`);
+      }
       const it = makeItem(world, {
         name: c.name, qty: c.qty, weight: clamp(Number(c.weight) || 0, 0, 2000), value: c.value,
         size: SIZES.includes(c.size) ? c.size : 'small', tags: c.tags, source: c.source || (trusted ? 'rewrite' : ''),
@@ -239,6 +250,7 @@ function applyOne(world, c, trusted) {
       });
       p.firstMet = world.clock;
       world.present.push(p.id);
+      linkByName(world, p);
       return { ok: true, note: `carded as ${p.id}` };
     }
 
@@ -363,6 +375,25 @@ function applyOne(world, c, trusted) {
       return { ok: true };
     }
 
+    case 'home_set': {
+      const pl = place(world, c.placeId);
+      if (!pl) return no(`no such place "${c.placeId}" (create it with new_place first)`);
+      const kind = String(c.kind || '').toLowerCase();
+      if (kind === 'none') { delete pl.home; return { ok: true }; }
+      if (!HOME_KINDS.includes(kind)) return no('home kind must be owned, rented or none');
+      const landlord = kind === 'rented' ? person(world, c.landlord) : null;
+      pl.home = {
+        kind,
+        landlordId: landlord ? landlord.id : (pl.home && pl.home.landlordId) || null,
+        landlordName: landlord ? landlord.fixed.name : String(c.landlord || (pl.home && pl.home.landlordName) || '').slice(0, 80),
+        since: (pl.home && pl.home.since) || shortDate(world),
+      };
+      if (landlord) {
+        for (const d of world.deals || []) if (d.homeId === pl.id && !d.personId) { d.personId = landlord.id; d.withName = landlord.fixed.name; }
+      }
+      return { ok: true };
+    }
+
     case 'scene_state': {
       const text = String(c.text || '').trim().slice(0, 500);
       if (!text) return no('empty scene state');
@@ -376,6 +407,24 @@ function applyOne(world, c, trusted) {
   }
 }
 
+
+/**
+ * A deal or home that so far only had a name ("Mrs Russo") gets the card of
+ * the person with that name, once they exist.
+ */
+export function linkByName(world, p) {
+  const name = p.fixed.name.trim().toLowerCase();
+  for (const d of world.deals || []) {
+    if (!d.personId && String(d.withName || '').trim().toLowerCase() === name) d.personId = p.id;
+  }
+  for (const pl of Object.values(world.places)) {
+    const h = pl.home;
+    if (h && !h.landlordId && String(h.landlordName || '').trim().toLowerCase() === name) {
+      h.landlordId = p.id;
+      for (const d of world.deals || []) if (d.homeId === pl.id && !d.personId) { d.personId = p.id; d.withName = p.fixed.name; }
+    }
+  }
+}
 
 /**
  * Sets who is with the player from the record-keeper's list. Unknown names and

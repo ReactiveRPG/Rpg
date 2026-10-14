@@ -48,6 +48,7 @@ export function refereeSystem(world, { autoLength = false } = {}) {
   return `You are the referee of a text roleplaying game. You do not narrate. You return data only.
 Judge the player's typed action. It is an attempt, never a fact: the player cannot declare outcomes, items they do not have, or other people's reactions.
 - possible: false ONLY for physical or situational reasons: the character lacks what the action needs (an item not on the carried list, being somewhere they are not, a physical impossibility). Wanting or trying is always possible.
+- Going somewhere is possible whenever the character could plausibly get there: their home, a workplace, a street, a business, any place a local would know. A place does not need to be in the packet's routes or records; new places are created as they are reached. Only rule travel impossible if the character physically cannot leave (locked in, tied up, no way across).
 - Never rule an action impossible because of its content, morality or explicitness. Sex, violence, crime and cruelty are all allowed in this game. How other people respond (agree, refuse, resist, bargain) is for the narrator to play, not for you to block.
 - Negotiating a price or terms (including with a sex worker) is a Haggling or Speech check when the outcome is uncertain.
 - needsCheck: true only when success is uncertain and failure would matter. Ordinary talk, movement and looking need no check. Persuading, lying, sneaking, picking locks, fighting, spotting something hidden usually do.
@@ -98,6 +99,8 @@ You are given a scene packet with every fact the game holds, then the player's a
 - Keep the prose to about ${REPLY_LENGTHS[length] || REPLY_LENGTHS.medium}. Do not pad it.
 - Facts on cards are true. Use names, sex and pronouns exactly as written. Never change anyone's looks or age.
 - The character carries only what is on their list. Nothing else exists unless it is in the scene.
+- Never invent facts about the player character's own life (where they live, their job, family, past) that the packet does not give. Their home, if recorded, is listed in the packet. If something is not recorded, keep it vague or let the player decide.
+- Money is a number on the character's card, never a pile of items. Name amounts plainly when money changes hands.
 - Open deals and promises in the packet are what was really agreed. Keep to their terms; people remember them.
 - The player character cannot die in this version of the game; at worst they are badly hurt or knocked out.
 - Write the story only: plain prose, no lists, no headings, no JSON. A separate record-keeper updates the game's facts from what you write, so state clearly who arrives, leaves, pays, hands over or takes what.`;
@@ -184,6 +187,7 @@ export const CHANGE_FORMATS = [
   '{"op":"place_update","placeId":"l1","field":"state|owner|usual","newValue":""}',
   '{"op":"deal_new","personId":"p2","terms":"who owes whom what, for what, by when, in one sentence","due":"optional"}',
   '{"op":"deal_update","dealId":"d1","status":"done|broken|open","note":"what happened"}',
+  '{"op":"home_set","placeId":"l3","kind":"owned|rented|none","landlord":"p4 or name, for rented"}',
   `Carry slots: ${[...Object.keys(SLOTS), INSIDE].join(', ')} ("inside" means in the bag given in "to").`,
 ].join('\n');
 
@@ -198,9 +202,12 @@ CHANGES: every change the new narration states or clearly implies. Use ids from 
 - history: one line on a person's card for anything memorable they did with the player (no date; the code adds it).
 - relationship: only when the moment really changes how someone feels about the player.
 - new_item only with a real source in the scene (taken, handed over, bought). use_up_item when eaten, spent, broken or lost. move_item when something changes hands or place (to a person, "here" for the ground, or a bag id).
-- pay for money changing hands, with the amount the narration states. The code does the arithmetic.
+- pay for money changing hands, with the amount the narration states and a short reason. The code does the arithmetic. Money found or picked up: pay with only "to". Money lost or stolen: pay with only "from" (or "to" the thief).
+- Money is NEVER an item: never new_item for cash, bills, coins of the currency, or "a stash of dollars". Use pay.
+- Do not re-create items the player already carries or wears (check the carried list): a second pair of the same boots is a mistake.
 - Moving somewhere else, including getting into a vehicle or entering another room, is a move: new_place (a vehicle is a place too) then player_moves; player_moves alone for a known place.
 - deal_new when an agreement, job, debt or promise is made (payment terms, what is owed, deadlines). deal_update when one is completed, paid, or broken.
+- home_set when the player character rents, buys or moves into a place, or loses or gives up their home (create the place with new_place first if needed). A rented home also gets a deal_new with the landlord for the rent: amount, how often, when due.
 - Each change is a small object with "op" and ONLY the fields that op uses.
 ${CHANGE_FORMATS}
 
@@ -291,14 +298,29 @@ export const CHARACTER_SCHEMA = O({
   gear: A(GEAR_SCHEMA, 'Starting clothing (worn) and gear, modest and fitting the background.'),
   ally: NPC_SCHEMA,
   enemy: NPC_SCHEMA,
-}, ['backstory', 'attributes', 'skills', 'money', 'gear', 'ally', 'enemy']);
+  home: O({
+    name: S('Name of the home, e.g. "Third-floor apartment, 212 Delancey Street".'),
+    type: S('Kind of home (apartment, rented room, house, cabin...).'),
+    region: S('District or area.'),
+    description: S('One or two concrete sentences.'),
+    kind: S('Owned, rented, or none if the character truly has no home (a drifter).', { enum: ['owned', 'rented', 'none'] }),
+    travelMinutes: I('Travel time from the starting place in minutes.'),
+    rent: I('Rented only: rent in base currency units per period, sensible for the setting.'),
+    rentEvery: S('Rented only: how often rent is due.', { enum: ['week', 'month'] }),
+    rentDue: S('Rented only: when it is due, e.g. "the 1st of each month".'),
+    landlord: O({
+      name: S('Full name.'), sex: S('Sex.', { enum: ['female', 'male', 'other'] }), pronouns: S('Pronouns.'),
+      age: I('Age.'), looks: S('Fixed appearance.'), voice: S('Voice and manner.'), job: S('Job.'),
+    }, ['name', 'sex', 'pronouns', 'age', 'looks']),
+  }, ['name', 'type', 'kind']),
+}, ['backstory', 'attributes', 'skills', 'money', 'gear', 'ally', 'enemy', 'home']);
 
 export function characterRequest(world, ch) {
   const skills = Object.entries(skillTable(world)).map(([k, v]) => `${k} (${v.attribute})`).join(', ');
   return {
     job: 'world',
     system: `You create player characters for a text roleplaying game, fitting the world premise. The player's choices are fixed facts: never change the name, sex, age or looks they gave. ${TONE}\n${FIXED_RULES}`,
-    messages: [{ role: 'user', text: `WORLD PREMISE:\n${JSON.stringify(world.premise)}\n\nTHE PLAYER'S CHARACTER:\nName: ${ch.name}\nSex: ${ch.sex} (${ch.pronouns})\nAge: ${ch.age}\nLooks: ${ch.looks}\nBackground: ${ch.background}\n\nSkills available: ${skills}.\nAttributes are modifiers from -1 to 3 and should add up to about 5.\nAdd a backstory, attributes, starting skills, starting money, starting gear (including worn clothing so they have pockets), one ally and one enemy.` }],
+    messages: [{ role: 'user', text: `WORLD PREMISE:\n${JSON.stringify(world.premise)}\n\nTHE PLAYER'S CHARACTER:\nName: ${ch.name}\nSex: ${ch.sex} (${ch.pronouns})\nAge: ${ch.age}\nLooks: ${ch.looks}\nBackground: ${ch.background}\n\nSkills available: ${skills}.\nAttributes are modifiers from -1 to 3 and should add up to about 5.\nAdd a backstory, attributes, starting skills, starting money, starting gear (including worn clothing so they have pockets), one ally, one enemy, and where they live (their home; if rented, the landlord and the rent). Money is only the money number, never a gear item.` }],
     json: CHARACTER_SCHEMA,
     label: 'character',
     temperature: 1,

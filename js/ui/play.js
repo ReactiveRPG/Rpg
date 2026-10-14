@@ -345,7 +345,7 @@ export async function renderPlay(root, ctx) {
         refresh();
         toast(tick.checked ? 'Reply edited and the record updated' : 'Reply edited');
       } }, 'Save');
-      const handFixes = ctx.world.log.some((e) => e.turn === ctx.world.turn && e.kind === 'system' && !e.recordRetry);
+      const handFixes = ctx.world.log.some((e) => e.turn === ctx.world.turn && e.kind === 'system' && !e.recordRetry && !e.money);
       show(h('p', 'Edit the last reply:'), box,
         h('label.switch', 'Update the record too', tick),
         h('p.hint', 'Re-reads your edited version so money, items and people match it. Untick for wording-only fixes.'),

@@ -19,6 +19,9 @@ A single-player text RPG where an AI game master narrates any world you describe
   - Undo opens a panel and removes nothing until you choose: edit the last reply (optionally re-running the record-keeper on the edited text), rewrite what happens, or take back up to 20 turns
   - reply length: Shortest, Short, Medium, Long, or Auto (the referee picks per turn)
   - the narrator is told the exact time of day every turn; reference codes like [p29] are removed from the story
+  - money is only the money number: cash items are refused, every money change shows as a note under the turn, Fix money in Inventory, and old cash items can be folded into money
+  - homes: owned or rented, made with the character (landlord card and rent deal), shown to the game master every turn; "Add a place you know" in Here for existing worlds
+  - no second pair of the same worn clothing; the referee allows travel to places not yet recorded
   - Check connection says which link to the home PC is broken (phone, PC, LM Studio, CORS)
   - automatic saves, plus Export and Import backups
   - a developer console

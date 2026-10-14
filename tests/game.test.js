@@ -541,3 +541,85 @@ test('editing the last reply: wording only, or recorded again from before the tu
   assert.equal(nw.people[nw.playerId].money, money - 4);
   assert.equal(nw.log.find((e) => e.kind === 'gm' && e.turn === 1).text, 'You pay Bren four.');
 });
+
+test('money is never an item, and every money change gets a note', async () => {
+  const w = newGame();
+  const r = applyChanges(w, [
+    { op: 'new_item', name: 'Thirty Dollars', qty: 9, value: 30, to: 'player', source: 'stash' },
+    { op: 'new_item', name: 'Handful of pennies', to: 'player', source: 'found' },
+    { op: 'new_item', name: 'Coin purse', size: 'small', tags: ['container'], to: 'player', source: 'bought' },
+  ]);
+  assert.equal(r.rejected.length, 2);
+  assert.match(r.rejected[0].reason, /money is not an item/);
+  assert.equal(r.applied.length, 1);
+
+  const { ask } = fakeAI({
+    referee: record({ possible: true, needsCheck: false, duration: 'moment', kind: 'trade' }),
+    narrator: say('You pay Tomas ten and find two pennies on the floor.'),
+    clerk: () => record({ changes: [
+      { op: 'pay', from: 'player', to: 'Tomas Reed', amount: 10, reason: 'old debt' },
+      { op: 'pay', to: 'player', amount: 2, reason: 'found on the floor' },
+    ] }),
+  });
+  await playTurn(w, 'I pay Tomas', { ask });
+  const note = w.log.find((e) => e.money);
+  assert.ok(note);
+  assert.equal(note.text, 'Money −8 pennies: −10 to Tomas Reed (old debt); +2 (found on the floor). Now 32 pennies.');
+});
+
+test('no second pair of boots on the same feet', () => {
+  const w = newGame();
+  applyChanges(w, [{ op: 'new_item', name: 'Work boots', tags: ['boots', 'clothing'], slot: 'worn', to: 'player', source: 'bought' }]);
+  const r = applyChanges(w, [
+    { op: 'new_item', name: 'Work Boots', tags: ['boots', 'clothing'], slot: 'worn', to: 'player', source: 'mistake' },
+    { op: 'new_item', name: 'Riding boots', tags: ['boots'], to: 'player', source: 'gift' },
+    { op: 'new_item', name: 'Spare boots', tags: ['boots'], slot: 'hand_left', to: 'player', source: 'bought' },
+  ]);
+  assert.equal(r.rejected.length, 2);
+  assert.match(r.rejected[0].reason, /already wearing Work boots/);
+  assert.equal(r.applied.length, 1, 'carrying a spare pair in a hand is fine');
+});
+
+test('homes: created with the character, shown every turn, landlords linked later', async () => {
+  const { addHome } = await import('../js/game/homes.js');
+  const w = newGame();
+  assert.match(buildPacket(w), /HOME: none recorded/);
+  const { place, deal } = addHome(w, { name: 'Room above the chandler', type: 'rented room', kind: 'rented', landlord: 'Old Marta', rent: 12, rentEvery: 'week' });
+  assert.equal(place.home.kind, 'rented');
+  assert.equal(deal.personId, null);
+  assert.match(deal.terms, /12 pennies a week, paid to Old Marta/);
+  const packet = buildPacket(w);
+  assert.match(packet, /HOME \(fact; they can always go there\):\n\[l\d+\] Room above the chandler — rented room, rented from Old Marta/);
+  assert.match(packet, /OPEN DEALS[\s\S]*Rent for Room above the chandler/);
+  // When Old Marta turns up in the story, her card is linked to the home and the rent deal.
+  applyChanges(w, [{ op: 'new_person', name: 'Old Marta', sex: 'female', age: 70, looks: 'Bent.' }]);
+  const marta = Object.values(w.people).find((p) => p.fixed.name === 'Old Marta');
+  assert.equal(place.home.landlordId, marta.id);
+  assert.equal(deal.personId, marta.id);
+  // The record-keeper can mark a home too.
+  const r = applyChanges(w, [{ op: 'new_place', name: 'Lighthouse cottage' }, { op: 'home_set', placeId: 'Lighthouse cottage', kind: 'owned' }]);
+  assert.equal(r.rejected.length, 0);
+  assert.equal(Object.values(w.places).find((p) => p.name === 'Lighthouse cottage').home.kind, 'owned');
+});
+
+test('character creation makes the home, landlord card and rent deal', () => {
+  const w = worldFromPremise({ title: 'NYC', currency: { name: 'dollar', plural: 'dollars' }, startDate: { year: 1972, month: 10, day: 15, hour: 22 }, startPlace: { name: 'The Garage' }, priceCatalogue: [] }, 'nyc');
+  const res = addCharacter(w, normaliseChoices({ name: 'Draymond', sex: 'male', age: 30 }), {
+    money: 75, gear: [{ name: 'Forty dollars', slot: 'pants_pockets' }, { name: 'Jeans', tags: ['pants'], slot: 'worn', size: 'medium' }],
+    home: { name: 'Apartment 3B, 212 Delancey St', type: 'apartment', kind: 'rented', travelMinutes: 25, rent: 90, rentEvery: 'month', rentDue: 'the 1st',
+      landlord: { name: 'Sal Russo', sex: 'male', pronouns: 'he/him', age: 61, looks: 'Cardigan, cigar.' } },
+  });
+  assert.ok(res.home);
+  assert.equal(res.home.landlord.fixed.name, 'Sal Russo');
+  assert.equal(res.home.deal.personId, res.home.landlord.id);
+  assert.match(res.home.deal.terms, /90 dollars a month/);
+  assert.ok(!Object.values(w.items).some((i) => i.name === 'Forty dollars'), 'cash in the gear list is not an item');
+});
+
+test('the referee allows going to places not yet recorded', async () => {
+  const w = newGame();
+  const { ask, calls } = fakeAI({ referee: record({ possible: true, duration: 'short', kind: 'travel' }), narrator: say('You walk home.'), clerk: record({ changes: [] }) });
+  await playTurn(w, 'I head to my apartment', { ask });
+  assert.match(calls[0].req.system, /A place does not need to be in the packet/);
+  assert.match(calls[1].req.system, /Never invent facts about the player character's own life/);
+});

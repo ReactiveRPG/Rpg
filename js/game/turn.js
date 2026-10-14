@@ -5,7 +5,7 @@
 //  4. the code rolls the dice         8. snapshot for undo (the caller saves)
 
 import { ask as defaultAsk } from '../providers/index.js';
-import { buildPacket } from './packet.js';
+import { buildPacket, money } from './packet.js';
 import { refereeRequest, narratorRequest, clerkRequest, proseFrom, summaryRequest, timeNote, stripCodes, REPLY_LENGTHS } from './ai.js';
 import { applyChanges, applyPresent } from './changes.js';
 import { check, clamp, OUTCOME_LABEL } from './dice.js';
@@ -151,7 +151,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   if (roll) world.log.push({ turn: t, kind: 'roll', text: rollText(roll), roll });
   else if (!ruling.possible) world.log.push({ turn: t, kind: 'roll', text: `Not possible: ${ruling.reason}` });
 
-  const { applied, rejected, recordFailed } = keepRecord(world, clerk, { trusted: rewrite });
+  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(world, clerk, { trusted: rewrite });
   for (const r of rejected) world.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
 
@@ -160,6 +160,7 @@ export async function playTurn(world, action, { rewrite = false, pending = null,
   const via = nar.via === 'pc' && nar.rescued ? 'pc-rescued'
     : nar.auto && nar.via === 'pc' ? (nar.switched ? 'pc-switched' : 'pc') : undefined;
   world.log.push({ turn: t, kind: 'gm', text: prose, via });
+  if (paid) world.log.push({ turn: t, kind: 'system', money: true, text: paid });
   if (recordFailed) {
     world.log.push({ turn: t, kind: 'system', recordRetry: { action: actionText, ruling: rulingBlock, kind: ruling.kind, trusted: rewrite || undefined },
       text: `The record could not be updated this turn (${clerk.message || 'no reply'}). Tap "Update the record" to try again, or fix things in Inventory or Here.` });
@@ -188,6 +189,8 @@ export function keepRecord(world, clerk, { trusted = false } = {}) {
     return { applied: [], rejected: [], recordFailed: true };
   }
   const d = clerk.data;
+  const p = player(world);
+  const moneyBefore = p ? p.money : 0;
   const changes = Array.isArray(d.changes) ? [...d.changes] : [];
   if (typeof d.scene_state === 'string' && d.scene_state.trim()) changes.push({ op: 'scene_state', text: d.scene_state });
   const { applied, rejected } = applyChanges(world, changes, { trusted });
@@ -196,7 +199,31 @@ export function keepRecord(world, clerk, { trusted = false } = {}) {
     const { dropped } = applyPresent(world, d.present);
     for (const x of dropped) rejected.push({ change: { op: 'present', ref: x.ref }, reason: x.reason });
   }
-  return { applied, rejected, recordFailed: false };
+  return { applied, rejected, recordFailed: false, moneyNote: p ? moneyNote(world, moneyBefore, applied) : null };
+}
+
+/** "Money −20 Dollars: to Sal (cab fare). Now 35 Dollars." — so every change to money can be seen. */
+export function moneyNote(world, before, applied) {
+  const p = player(world);
+  const diff = p.money - before;
+  if (!diff) return null;
+  const name = (ref) => {
+    if (!ref) return '';
+    if (['player', 'me', 'you'].includes(String(ref).toLowerCase())) return 'you';
+    const x = world.people[ref] || Object.values(world.people).find((q) => q.fixed.name.toLowerCase() === String(ref).toLowerCase());
+    return x ? x.fixed.name : String(ref).slice(0, 40);
+  };
+  const isMe = (ref) => ref && (name(ref) === 'you' || name(ref) === p.fixed.name);
+  const parts = [];
+  for (const a of applied) {
+    const c = a.change;
+    if (c.op !== 'pay') continue;
+    const why = c.reason ? ` (${String(c.reason).slice(0, 60)})` : '';
+    if (isMe(c.from)) parts.push(`−${c.amount}${c.to ? ' to ' + name(c.to) : ''}${why}`);
+    else if (isMe(c.to)) parts.push(`+${c.amount}${c.from ? ' from ' + name(c.from) : ''}${why}`);
+  }
+  const sign = diff > 0 ? '+' : '−';
+  return `Money ${sign}${money(world, Math.abs(diff))}${parts.length ? ': ' + parts.join('; ') : ''}. Now ${money(world, p.money)}.`;
 }
 
 /**
@@ -212,8 +239,9 @@ export async function redoRecord(world, entry, { ask = defaultAsk, signal } = {}
   const packet = buildPacket(world, { kind: info.kind });
   const clerk = await ask({ ...clerkRequest(world, packet, info.action, info.ruling, gm.text), signal, preferPc: (world.pcUntilTurn || 0) > world.turn });
   if (!clerk.ok) return { ok: false, error: clerk };
-  const { applied, rejected, recordFailed } = keepRecord(world, clerk, { trusted: !!info.trusted });
+  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(world, clerk, { trusted: !!info.trusted });
   if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
+  if (paid) world.log.push({ turn: entry.turn, kind: 'system', money: true, text: paid });
   for (const r of rejected) world.rejected.push({ turn: entry.turn, change: r.change, reason: r.reason });
   if (world.rejected.length > MAX_REJECTED_LOG) world.rejected.splice(0, world.rejected.length - MAX_REJECTED_LOG);
   const i = world.log.indexOf(entry);
@@ -282,8 +310,9 @@ export async function editLastReply(world, newText, { updateRecord = true, ask =
     next.log.push(e === gm ? { ...e, text, edited: true } : { ...e });
   }
   next.rejected = world.rejected.filter((r) => r.turn !== t);
-  const { applied, rejected, recordFailed } = keepRecord(next, clerk, { trusted: !!info.trusted });
+  const { applied, rejected, recordFailed, moneyNote: paid } = keepRecord(next, clerk, { trusted: !!info.trusted });
   if (recordFailed) return { ok: false, error: { kind: 'bad_json', message: 'The record-keeper\'s answer could not be read.' } };
+  if (paid) next.log.push({ turn: t, kind: 'system', money: true, text: paid });
   for (const r of rejected) next.rejected.push({ turn: t, change: r.change, reason: r.reason });
   if (next.rejected.length > MAX_REJECTED_LOG) next.rejected.splice(0, next.rejected.length - MAX_REJECTED_LOG);
   next.clock = world.clock;
